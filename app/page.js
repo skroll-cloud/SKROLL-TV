@@ -21,7 +21,7 @@ export default function Home() {
   }, [currentUser])
 
   async function loadVideos() {
-    const { data } = await supabase.from('videos').select('*').order('uploaded_at', { ascending: false })
+    const { data } = await supabase.from('Videos').select('*').order('uploaded_at', { ascending: false })
     if (data) setVideos(data)
   }
 
@@ -42,7 +42,7 @@ export default function Home() {
         const filePath = `${timestamp}-${safeName}`
 
         const { data, error } = await supabase.storage
-          .from('videos')
+          .from('Videos')
           .upload(filePath, file, { cacheControl: '3600', upsert: false })
 
         if (error) {
@@ -51,9 +51,9 @@ export default function Home() {
           continue
         }
 
-        const { data: urlData } = supabase.storage.from('videos').getPublicUrl(filePath)
+        const { data: urlData } = supabase.storage.from('Videos').getPublicUrl(filePath)
 
-        await supabase.from('videos').insert([{
+        await supabase.from('Videos').insert([{
           title: file.name.replace(/\.[^/.]+$/, ''),
           file_url: urlData.publicUrl,
           uploaded_by: currentUser,
@@ -79,7 +79,7 @@ export default function Home() {
     const video = videos.find(v => v.id === videoId)
     if (!video) return
     const field = `${userName.toLowerCase().replace(' ', '')}_approved`
-    await supabase.from('videos').update({ [field]: !video[field] }).eq('id', videoId)
+    await supabase.from('Videos').update({ [field]: !video[field] }).eq('id', videoId)
     loadVideos()
   }
 
