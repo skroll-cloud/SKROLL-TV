@@ -29,35 +29,48 @@ export default function Home() {
     if (!file) return
 
     setUploading(true)
-    const fileExt = file.name.split('.').pop()
-    const fileName = `${Math.random()}.${fileExt}`
-    const filePath = `${fileName}`
 
-    const { error: uploadError } = await supabase.storage
-      .from('videos')
-      .upload(filePath, file)
+    try {
+      // Upload via API Route (contourne CORS)
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('userId', currentUser)
 
-    if (uploadError) {
-      alert('Erreur upload: ' + uploadError.message)
+      const response = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        alert('Erreur upload: ' + data.error)
+        setUploading(false)
+        return
+      }
+
+      // Enregistrer dans la base de données
+      const { error: dbError } = await supabase.from('videos').insert([{
+        title: file.name.replace(/\.[^/.]+$/, ''),
+        file_url: data.url,
+        uploaded_by: currentUser,
+        status: 'En cours',
+        bertrand_approved: false,
+        sebastien_approved: false,
+        pierreemmanuel_approved: false
+      }])
+
+      if (dbError) {
+        alert('Erreur base de données: ' + dbError.message)
+      }
+
       setUploading(false)
-      return
+      loadVideos()
+
+    } catch (error) {
+      alert('Erreur: ' + error.message)
+      setUploading(false)
     }
-
-    const { data: { publicUrl } } = supabase.storage
-      .from('videos')
-      .getPublicUrl(filePath)
-
-    await supabase.from('videos').insert([{
-      title: file.name,
-      file_url: publicUrl,
-      uploaded_by: currentUser,
-      bertrand_approved: false,
-      sebastien_approved: false,
-      pierreemmanuel_approved: false
-    }])
-
-    setUploading(false)
-    loadVideos()
   }
 
   async function toggleApproval(videoId, userName) {
@@ -217,4 +230,3 @@ export default function Home() {
     </div>
   )
 }
-// Force rebuild
