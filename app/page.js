@@ -1,7 +1,12 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { supabase } from '../lib/supabase'
+import { createClient } from '@supabase/supabase-js'
+
+const supabase = createClient(
+  'https://riotdlbdywxuouvdgqpt.supabase.co',
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJpb3RkbGJkeXd4dW91dmRncXB0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzAxNTIxOTAsImV4cCI6MjA4NTcyODE5MH0.DymkDS6E-ouapVQerRjZSHDEeUbV81GY-5i7d5kOQ1w'
+)
 
 export default function Home() {
   const [currentUser, setCurrentUser] = useState(null)
@@ -12,7 +17,7 @@ export default function Home() {
   const [uploadStatus, setUploadStatus] = useState('')
 
   useEffect(() => {
-    if (currentUser) { loadVideos() }
+    if (currentUser) loadVideos()
   }, [currentUser])
 
   async function loadVideos() {
@@ -32,31 +37,35 @@ export default function Home() {
       setUploadStatus(`Upload ${i + 1}/${files.length}: ${file.name}`)
 
       try {
-        const response = await fetch('/api/upload', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ fileName: file.name, contentType: file.type })
-        })
-        const data = await response.json()
-        if (!response.ok) { alert(`Erreur: ${data.error}`); continue }
+        const timestamp = Date.now()
+        const safeName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_')
+        const filePath = `${timestamp}-${safeName}`
 
-        const uploadRes = await fetch(data.signedUrl, {
-          method: 'PUT',
-          headers: { 'Content-Type': file.type },
-          body: file
-        })
-        if (!uploadRes.ok) { alert(`Erreur upload ${file.name}`); continue }
+        const { data, error } = await supabase.storage
+          .from('videos')
+          .upload(filePath, file, { cacheControl: '3600', upsert: false })
+
+        if (error) {
+          console.error('Upload error:', error)
+          alert(`Erreur upload ${file.name}: ${error.message}`)
+          continue
+        }
+
+        const { data: urlData } = supabase.storage.from('videos').getPublicUrl(filePath)
 
         await supabase.from('videos').insert([{
           title: file.name.replace(/\.[^/.]+$/, ''),
-          file_url: data.publicUrl,
+          file_url: urlData.publicUrl,
           uploaded_by: currentUser,
           status: 'En cours',
           bertrand_approved: false,
           sebastien_approved: false,
           pierreemmanuel_approved: false
         }])
-      } catch (error) { alert(`Erreur: ${error.message}`) }
+      } catch (error) {
+        console.error('Error:', error)
+        alert(`Erreur: ${error.message}`)
+      }
     }
 
     setUploadProgress(100)
