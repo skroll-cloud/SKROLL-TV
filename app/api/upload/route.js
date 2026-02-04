@@ -1,6 +1,16 @@
 import { createClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
 
+// Configuration pour accepter les gros fichiers
+export const config = {
+  api: {
+    bodyParser: false,
+  },
+}
+
+// Augmenter la limite de taille (60 secondes timeout, 50MB max)
+export const maxDuration = 60
+
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
@@ -14,6 +24,11 @@ export async function POST(request) {
     
     if (!file) {
       return NextResponse.json({ error: 'Aucun fichier fourni' }, { status: 400 })
+    }
+
+    // Vérifier la taille (max 50MB)
+    if (file.size > 50 * 1024 * 1024) {
+      return NextResponse.json({ error: 'Fichier trop volumineux (max 50MB)' }, { status: 400 })
     }
 
     const bytes = await file.arrayBuffer()
