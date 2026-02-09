@@ -88,6 +88,24 @@ export default function Home() {
       setPassword('')
     } else {
       setLoginError('Mot de passe incorrect')
+
+  async function handleChangePassword() {
+    if (newPassword !== confirmPassword) {
+      setPasswordMessage("Les mots de passe ne correspondent pas")
+      return
+    }
+    if (newPassword.length < 4) {
+      setPasswordMessage("Minimum 4 caractères")
+      return
+    }
+    const { error } = await supabase.from("users").update({ password: newPassword }).eq("name", currentUser)
+    if (error) {
+      setPasswordMessage("Erreur: " + error.message)
+    } else {
+      setPasswordMessage("Mot de passe changé !")
+      setTimeout(() => { setShowPasswordModal(false); setNewPassword(""); setConfirmPassword(""); setPasswordMessage("") }, 1500)
+    }
+  }
     }
   }
 
