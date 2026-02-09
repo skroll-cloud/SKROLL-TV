@@ -413,7 +413,20 @@ export default function Home() {
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                   {filteredVideos.map((video) => (
                     <div key={video.id} className="bg-white rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-shadow">
-                      <video src={video.file_url} controls className="w-full aspect-video bg-gray-900" />
+                      <video 
+                                        src={video.file_url} 
+                                        controls 
+                                        preload="metadata"
+                                        className="w-full aspect-video bg-gray-900 plyr-react plyr"
+                                        onLoadedMetadata={(e) => {
+                                          if (!video.duration) {
+                                            const dur = e.target.duration
+                                            const mins = Math.floor(dur / 60)
+                                            const secs = Math.floor(dur % 60)
+                                            updateVideoDuration(video.id, `${mins}:${secs.toString().padStart(2, '0')}`)
+                                          }
+                                        }}
+                                      />
                       <div className="p-4">
                         <h3 className="font-semibold text-gray-900 mb-2">{video.title}</h3>
                         <div className="flex gap-2 mb-3">
