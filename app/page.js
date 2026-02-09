@@ -452,8 +452,10 @@ export default function Home() {
                             return <button key={name} onClick={() => toggleApproval(video.id, name)} className={`px-3 py-1 rounded-full text-xs font-medium ${approved ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'}`}>{approved ? '✓' : '○'} {name === 'PierreEmmanuel' ? 'Pierre E.' : name}</button>
                           })}
                         </div>
-                        <div className="flex gap-2">
+                        <div className="flex gap-2 flex-wrap">
                           <button onClick={() => { setSelectedVideoForComment(video.id); loadComments(video.id) }} className="text-xs text-blue-600 hover:underline">💬 Commentaires</button>
+                          <a href={video.file_url} download className="text-xs text-green-600 hover:underline">⬇ Télécharger</a>
+                          <a href={video.file_url} target="_blank" className="text-xs text-purple-600 hover:underline">▶ Ouvrir</a>
                           <button onClick={() => deleteVideo(video.id)} className="text-xs text-red-600 hover:underline ml-auto">🗑 Supprimer</button>
                         </div>
                         
@@ -505,7 +507,9 @@ export default function Home() {
                             <span className={video.sebastien_approved ? 'text-green-600' : 'text-gray-400'}> S</span>
                             <span className={video.pierreemmanuel_approved ? 'text-green-600' : 'text-gray-400'}> P</span>
                           </td>
-                          <td className="px-4 py-3 text-sm">
+                          <td className="px-4 py-3 text-sm space-x-2">
+                            <a href={video.file_url} target="_blank" className="text-blue-600 hover:underline">▶ Lire</a>
+                            <a href={video.file_url} download className="text-green-600 hover:underline">⬇ DL</a>
                             <button onClick={() => deleteVideo(video.id)} className="text-red-600 hover:underline">Supprimer</button>
                           </td>
                         </tr>
