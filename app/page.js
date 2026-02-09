@@ -18,6 +18,10 @@ export default function Home() {
   }, [])
   const [password, setPassword] = useState('')
   const [loginError, setLoginError] = useState('')
+  const [showPasswordModal, setShowPasswordModal] = useState(false)
+  const [newPassword, setNewPassword] = useState("")
+  const [confirmPassword, setConfirmPassword] = useState("")
+  const [passwordMessage, setPasswordMessage] = useState("")
   const [currentSection, setCurrentSection] = useState('videos')
   
   // Videos
