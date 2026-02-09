@@ -10,6 +10,12 @@ const supabase = createClient(
 
 export default function Home() {
   const [currentUser, setCurrentUser] = useState(null)
+
+  // Session persistence
+  useEffect(() => {
+    const saved = localStorage.getItem("skroll_user")
+    if (saved) setCurrentUser(saved)
+  }, [])
   const [password, setPassword] = useState('')
   const [loginError, setLoginError] = useState('')
   const [currentSection, setCurrentSection] = useState('videos')
@@ -73,7 +79,7 @@ export default function Home() {
       .single()
     
     if (data) {
-      setCurrentUser(userName)
+      localStorage.setItem("skroll_user", userName); setCurrentUser(userName)
       setLoginError('')
       setPassword('')
     } else {
@@ -338,7 +344,7 @@ export default function Home() {
           <h1 className="text-2xl font-bold text-blue-600">SKROLL.TV</h1>
           <div className="flex items-center gap-4">
             <span className="text-gray-700 font-medium">{currentUser}</span>
-            <button onClick={() => setCurrentUser(null)} className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-medium">Déconnexion</button>
+            <button onClick={() => { localStorage.removeItem("skroll_user"); setCurrentUser(null) }} className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-medium">Déconnexion</button>
           </div>
         </div>
       </header>
