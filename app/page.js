@@ -37,6 +37,7 @@ export default function Home() {
   const [viewMode, setViewMode] = useState('grid')
   const [filterType, setFilterType] = useState('all')
   const [filterValidation, setFilterValidation] = useState('all')
+  const [searchQuery, setSearchQuery] = useState('')
   const [newTypeName, setNewTypeName] = useState('')
   const [selectedVideos, setSelectedVideos] = useState(new Set())
   const [commentCounts, setCommentCounts] = useState({})
@@ -355,6 +356,17 @@ export default function Home() {
 
   function getFilteredVideos() {
     let filtered = videos
+    
+    // Recherche par texte
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase()
+      filtered = filtered.filter(v => 
+        v.title.toLowerCase().includes(query) ||
+        v.video_types?.name?.toLowerCase().includes(query) ||
+        v.uploaded_by?.toLowerCase().includes(query)
+      )
+    }
+    
     if (filterType !== 'all') filtered = filtered.filter(v => v.type_id === filterType)
     if (filterValidation === 'to_validate' && currentUser) { 
       const f = userToColumn[currentUser]
@@ -455,12 +467,39 @@ export default function Home() {
               <div className="mb-6 flex justify-between items-start">
                 <div>
                   <h2 className="text-3xl font-bold text-gray-900 mb-2">Vidéos</h2>
-                  <p className="text-gray-600">Uploadez et validez vos shorts collectivement</p>
+                  <p className="text-gray-600">{videos.length} vidéos • {filteredVideos.length} affichées</p>
                 </div>
                 <div className="flex gap-2">
                   <button onClick={() => setViewMode('grid')} className={`px-3 py-2 rounded ${viewMode === 'grid' ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}>Grille</button>
                   <button onClick={() => setViewMode('table')} className={`px-3 py-2 rounded ${viewMode === 'table' ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}>Tableau</button>
                 </div>
+              </div>
+              
+              {/* Barre de recherche */}
+              <div className="mb-6">
+                <div className="relative">
+                  <input
+                    type="text"
+                    placeholder="🔍 Rechercher par titre, type, auteur..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full border border-gray-300 rounded-xl px-4 py-3 pl-12 text-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-xl">🔍</span>
+                  {searchQuery && (
+                    <button
+                      onClick={() => setSearchQuery('')}
+                      className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+                {searchQuery && (
+                  <p className="mt-2 text-sm text-gray-600">
+                    {filteredVideos.length} résultat{filteredVideos.length > 1 ? 's' : ''} pour "{searchQuery}"
+                  </p>
+                )}
               </div>
               
               <div className="mb-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
@@ -554,45 +593,28 @@ export default function Home() {
                         <div className="p-4">
                           <h3 className="font-semibold text-gray-900 mb-2">{video.title}</h3>
                           
-                          {/* Badges en ligne */}
                           <div className="flex flex-wrap gap-2 mb-3">
                             {video.video_types?.name && (
                               <span className="text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded">{video.video_types.name}</span>
                             )}
-                            {commentCount > 0 && (
-                              <button onClick={() => toggleComments(video.id)} className="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded hover:bg-yellow-200 transition-colors">
-                                💬 {commentCount}
-                              </button>
-                            )}
-                            {commentCount === 0 && (
-                              <button onClick={() => toggleComments(video.id)} className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded hover:bg-gray-200 transition-colors">
-                                💬 Commenter
-                              </button>
-                            )}
+                            <button onClick={() => toggleComments(video.id)} className={`text-xs px-2 py-1 rounded transition-colors ${commentCount > 0 ? 'bg-yellow-100 text-yellow-800 hover:bg-yellow-200' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                              💬 {commentCount > 0 ? commentCount : 'Commenter'}
+                            </button>
                             {audioCount > 0 && (
                               <span className="text-xs bg-purple-100 text-purple-800 px-2 py-1 rounded">🎵 {audioCount}</span>
                             )}
                           </div>
                           
-                          {/* Mon bouton de validation */}
                           <button onClick={() => toggleMyApproval(video.id)} className={`w-full mb-3 px-4 py-2 rounded-lg text-sm font-medium transition-all ${myApproval ? 'bg-green-100 text-green-800 ring-2 ring-green-500' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
                             {myApproval ? '✓ Validée par moi' : '○ Valider'}
                           </button>
                           
-                          {/* Statut des validations des autres - plus visible */}
                           <div className="flex gap-2 mb-3">
-                            <span className={`text-xs px-2 py-1 rounded-full ${video.bertrand_approved ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-400'}`}>
-                              B {video.bertrand_approved ? '✓' : ''}
-                            </span>
-                            <span className={`text-xs px-2 py-1 rounded-full ${video.sebastien_approved ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-400'}`}>
-                              S {video.sebastien_approved ? '✓' : ''}
-                            </span>
-                            <span className={`text-xs px-2 py-1 rounded-full ${video.pierreemmanuel_approved ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-400'}`}>
-                              P {video.pierreemmanuel_approved ? '✓' : ''}
-                            </span>
+                            <span className={`text-xs px-2 py-1 rounded-full ${video.bertrand_approved ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-400'}`}>B {video.bertrand_approved ? '✓' : ''}</span>
+                            <span className={`text-xs px-2 py-1 rounded-full ${video.sebastien_approved ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-400'}`}>S {video.sebastien_approved ? '✓' : ''}</span>
+                            <span className={`text-xs px-2 py-1 rounded-full ${video.pierreemmanuel_approved ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-400'}`}>P {video.pierreemmanuel_approved ? '✓' : ''}</span>
                           </div>
                           
-                          {/* Zone de commentaires dépliable */}
                           {isExpanded && (
                             <div className="border-t pt-3 mt-3">
                               {comments.length > 0 && (
@@ -619,7 +641,6 @@ export default function Home() {
                             </div>
                           )}
                           
-                          {/* Actions */}
                           <div className="flex gap-2 text-xs mt-3 pt-3 border-t">
                             <button onClick={() => router.push(`/video/${video.id}`)} className="text-blue-600 hover:underline">📝 Détails</button>
                             <a href={video.file_url} download className="text-green-600 hover:underline">⬇ DL</a>
@@ -683,7 +704,7 @@ export default function Home() {
                 </div>
               )}
               
-              {filteredVideos.length === 0 && <div className="text-center py-12 text-gray-500">Aucune vidéo</div>}
+              {filteredVideos.length === 0 && <div className="text-center py-12 text-gray-500">{searchQuery ? `Aucun résultat pour "${searchQuery}"` : 'Aucune vidéo'}</div>}
             </div>
           )}
 
