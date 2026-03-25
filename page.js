@@ -8,15 +8,25 @@ const supabase = createClient(
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJpb3RkbGJkeXd4dW91dmRncXB0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzAxNTIxOTAsImV4cCI6MjA4NTcyODE5MH0.DymkDS6E-ouapVQerRjZSHDEeUbV81GY-5i7d5kOQ1w'
 )
 
+// Mapping des noms vers les colonnes de la base
+const userToColumn = {
+  'Bertrand': 'bertrand_approved',
+  'Sébastien': 'sebastien_approved',
+  'Pierre Emmanuel': 'pierreemmanuel_approved'
+}
+
 export default function Home() {
   const [currentUser, setCurrentUser] = useState(null)
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [loginError, setLoginError] = useState('')
   const [currentSection, setCurrentSection] = useState('videos')
   const [showPasswordModal, setShowPasswordModal] = useState(false)
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
+  const [showNewPassword, setShowNewPassword] = useState(false)
   const [passwordMessage, setPasswordMessage] = useState('')
+  const [isChangingPassword, setIsChangingPassword] = useState(false)
   const [videos, setVideos] = useState([])
   const [videoTypes, setVideoTypes] = useState([])
   const [uploading, setUploading] = useState(false)
@@ -49,15 +59,23 @@ export default function Home() {
     if (data) { setCurrentUser(userName); setLoginError(''); setPassword('') } else { setLoginError('Mot de passe incorrect') }
   }
   function handleLogout() { localStorage.removeItem('skroll_user'); setCurrentUser(null) }
+  
   async function handleChangePassword() {
     if (newPassword !== confirmPassword) { setPasswordMessage('Les mots de passe ne correspondent pas'); return }
     if (newPassword.length < 4) { setPasswordMessage('Minimum 4 caractères'); return }
+    setIsChangingPassword(true)
     const { error } = await supabase.from('users').update({ password: newPassword }).eq('name', currentUser)
-    if (error) { setPasswordMessage('Erreur: ' + error.message) } else { setPasswordMessage('Mot de passe changé !'); setTimeout(() => { setShowPasswordModal(false); setNewPassword(''); setConfirmPassword(''); setPasswordMessage('') }, 1500) }
+    setIsChangingPassword(false)
+    if (error) { setPasswordMessage('Erreur: ' + error.message) } 
+    else { 
+      setPasswordMessage('✓ Mot de passe changé !'); 
+      setTimeout(() => { setShowPasswordModal(false); setNewPassword(''); setConfirmPassword(''); setPasswordMessage('') }, 1500) 
+    }
   }
 
   async function loadVideos() { const { data } = await supabase.from('videos').select('*, video_types(name)').order('uploaded_at', { ascending: false }); if (data) setVideos(data) }
   async function loadVideoTypes() { const { data } = await supabase.from('video_types').select('*').order('name'); if (data) setVideoTypes(data) }
+  
   async function handleVideoUpload(event) {
     const files = Array.from(event.target.files || []); if (files.length === 0) return; setUploading(true); setUploadProgress(0)
     for (let i = 0; i < files.length; i++) {
@@ -71,7 +89,17 @@ export default function Home() {
     }
     setUploadProgress(100); setUploadStatus('Terminé !'); setUploading(false); loadVideos(); setTimeout(() => { setUploadProgress(0); setUploadStatus('') }, 2000); event.target.value = ''
   }
-  async function toggleApproval(videoId, userName) { const video = videos.find(v => v.id === videoId); if (!video) return; const field = `${userName.toLowerCase().replace(' ', '')}_approved`; await supabase.from('videos').update({ [field]: !video[field] }).eq('id', videoId); loadVideos() }
+  
+  async function toggleApproval(videoId, userName) { 
+    const video = videos.find(v => v.id === videoId); 
+    if (!video) return; 
+    const field = userToColumn[userName];
+    if (!field) return;
+    const newValue = !video[field];
+    await supabase.from('videos').update({ [field]: newValue }).eq('id', videoId); 
+    loadVideos() 
+  }
+  
   async function updateVideoType(videoId, typeId) { await supabase.from('videos').update({ type_id: typeId || null }).eq('id', videoId); loadVideos() }
   async function updateVideoDuration(videoId, duration) { await supabase.from('videos').update({ duration }).eq('id', videoId); loadVideos() }
   async function deleteVideo(videoId) { if (!confirm('Supprimer cette vidéo ?')) return; await supabase.from('videos').delete().eq('id', videoId); loadVideos() }
@@ -110,13 +138,20 @@ export default function Home() {
   function getFilteredVideos() {
     let filtered = videos
     if (filterType !== 'all') filtered = filtered.filter(v => v.type_id === filterType)
-    if (filterValidation === 'to_validate' && currentUser) { const f = `${currentUser.toLowerCase().replace(' ', '')}_approved`; filtered = filtered.filter(v => !v[f]) }
-    else if (filterValidation === 'validated' && currentUser) { const f = `${currentUser.toLowerCase().replace(' ', '')}_approved`; filtered = filtered.filter(v => v[f]) }
+    if (filterValidation === 'to_validate' && currentUser) { 
+      const f = userToColumn[currentUser]; 
+      filtered = filtered.filter(v => !v[f]) 
+    }
+    else if (filterValidation === 'validated' && currentUser) { 
+      const f = userToColumn[currentUser]; 
+      filtered = filtered.filter(v => v[f]) 
+    }
     else if (filterValidation === 'all_validated') filtered = filtered.filter(v => v.bertrand_approved && v.sebastien_approved && v.pierreemmanuel_approved)
     return filtered
   }
   const filteredVideos = getFilteredVideos()
-  const toValidateCount = currentUser ? videos.filter(v => { const f = `${currentUser.toLowerCase().replace(' ', '')}_approved`; return !v[f] }).length : 0
+  const toValidateCount = currentUser ? videos.filter(v => { const f = userToColumn[currentUser]; return f && !v[f] }).length : 0
+  const allValidatedVideos = videos.filter(v => v.bertrand_approved && v.sebastien_approved && v.pierreemmanuel_approved)
 
   if (!currentUser) {
     return (
@@ -125,7 +160,10 @@ export default function Home() {
           <h1 className="text-3xl font-bold text-gray-900 mb-2 text-center">SKROLL.TV</h1>
           <p className="text-gray-600 mb-8 text-center">Connectez-vous</p>
           {loginError && <p className="text-red-500 text-center mb-4">{loginError}</p>}
-          <input type="password" placeholder="Mot de passe" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full border border-gray-300 rounded-lg px-4 py-3 mb-4" />
+          <div className="relative mb-4">
+            <input type={showPassword ? "text" : "password"} placeholder="Mot de passe" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full border border-gray-300 rounded-lg px-4 py-3 pr-12" />
+            <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700">{showPassword ? '🙈' : '👁'}</button>
+          </div>
           <div className="space-y-3">
             {['Bertrand', 'Sébastien', 'Pierre Emmanuel'].map((name) => (
               <button key={name} onClick={() => handleLogin(name)} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-4 px-6 rounded-xl transition-colors">{name}</button>
@@ -142,12 +180,17 @@ export default function Home() {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl p-6 max-w-sm w-full mx-4">
             <h3 className="text-lg font-semibold mb-4">Changer le mot de passe</h3>
-            <input type="password" placeholder="Nouveau mot de passe" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} className="w-full border rounded-lg px-3 py-2 mb-3" />
-            <input type="password" placeholder="Confirmer" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} className="w-full border rounded-lg px-3 py-2 mb-3" />
-            {passwordMessage && <p className={`text-sm mb-3 ${passwordMessage.includes('changé') ? 'text-green-600' : 'text-red-500'}`}>{passwordMessage}</p>}
+            <div className="relative mb-3">
+              <input type={showNewPassword ? "text" : "password"} placeholder="Nouveau mot de passe" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} className="w-full border rounded-lg px-3 py-2 pr-10" />
+              <button type="button" onClick={() => setShowNewPassword(!showNewPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">{showNewPassword ? '🙈' : '👁'}</button>
+            </div>
+            <div className="relative mb-3">
+              <input type={showNewPassword ? "text" : "password"} placeholder="Confirmer" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} className="w-full border rounded-lg px-3 py-2 pr-10" />
+            </div>
+            {passwordMessage && <p className={`text-sm mb-3 ${passwordMessage.includes('✓') ? 'text-green-600' : 'text-red-500'}`}>{passwordMessage}</p>}
             <div className="flex gap-2">
-              <button onClick={() => { setShowPasswordModal(false); setPasswordMessage('') }} className="flex-1 px-4 py-2 bg-gray-200 rounded-lg">Annuler</button>
-              <button onClick={handleChangePassword} className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg">Changer</button>
+              <button onClick={() => { setShowPasswordModal(false); setPasswordMessage(''); setNewPassword(''); setConfirmPassword('') }} className="flex-1 px-4 py-2 bg-gray-200 rounded-lg hover:bg-gray-300">Annuler</button>
+              <button onClick={handleChangePassword} disabled={isChangingPassword} className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">{isChangingPassword ? 'Chargement...' : 'Changer'}</button>
             </div>
           </div>
         </div>
@@ -158,6 +201,7 @@ export default function Home() {
           <h1 className="text-2xl font-bold text-blue-600">SKROLL.TV</h1>
           <div className="flex items-center gap-4">
             {toValidateCount > 0 && <span className="bg-red-500 text-white text-xs px-2 py-1 rounded-full">{toValidateCount} à valider</span>}
+            {allValidatedVideos.length > 0 && <span className="bg-green-500 text-white text-xs px-2 py-1 rounded-full">{allValidatedVideos.length} validée{allValidatedVideos.length > 1 ? 's' : ''}</span>}
             <span className="text-gray-700 font-medium">{currentUser}</span>
             <button onClick={() => setShowPasswordModal(true)} className="px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm">🔐</button>
             <button onClick={handleLogout} className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-medium">Déconnexion</button>
@@ -168,7 +212,7 @@ export default function Home() {
       <div className="flex">
         <nav className="w-64 bg-white border-r border-gray-200 fixed left-0 top-[73px] bottom-0 overflow-y-auto">
           <ul className="p-4 space-y-2">
-            {[{id:'videos',icon:'🎬',label:'Vidéos'},{id:'tasks',icon:'✅',label:'Tâches'},{id:'ideas',icon:'💡',label:'Idées'},{id:'contacts',icon:'👥',label:'Contacts'},{id:'files',icon:'📁',label:'Fichiers'}].map((item) => (
+            {[{id:'videos',icon:'🎬',label:'Vidéos'},{id:'validated',icon:'✅',label:`Validées (${allValidatedVideos.length})`},{id:'tasks',icon:'📋',label:'Tâches'},{id:'ideas',icon:'💡',label:'Idées'},{id:'contacts',icon:'👥',label:'Contacts'},{id:'files',icon:'📁',label:'Fichiers'}].map((item) => (
               <li key={item.id}><button onClick={() => setCurrentSection(item.id)} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg font-medium transition-all ${currentSection === item.id ? 'bg-blue-50 text-blue-600' : 'text-gray-700 hover:bg-gray-50'}`}><span className="text-xl">{item.icon}</span><span>{item.label}</span></button></li>
             ))}
           </ul>
@@ -185,7 +229,7 @@ export default function Home() {
                 </div>
               </div>
               <div className="mb-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <p className="text-sm text-blue-800"><strong>📹 Format optimal :</strong> MP4 H.264 • 720p (1280×720) • Débit 5-8 Mbps • Audio AAC 128kbps</p>
+                <p className="text-sm text-blue-800"><strong>📹 Format optimal :</strong> MP4 H.264/H.265 • 1080p (1920×1080) ou 720p • Débit 8-12 Mbps • Audio AAC 128kbps</p>
                 <p className="text-xs text-blue-600 mt-1">Utilisez HandBrake ou FFmpeg pour convertir vos vidéos avant upload.</p>
               </div>
               <div className="mb-6 flex flex-wrap gap-4 items-center">
@@ -212,7 +256,7 @@ export default function Home() {
                   <input type="file" accept="video/*" multiple onChange={handleVideoUpload} disabled={uploading} className="hidden" />
                   <div className="text-4xl mb-2">📤</div>
                   <div className="text-lg font-medium text-gray-700">{uploading ? uploadStatus : 'Cliquez pour sélectionner des vidéos'}</div>
-                  <div className="text-sm text-gray-500">MP4, MOV - Max 50 MB - Sélection multiple</div>
+                  <div className="text-sm text-gray-500">MP4, MOV - Max 100 MB - Sélection multiple</div>
                   {uploading && (<div className="mt-4 max-w-md mx-auto"><div className="w-full bg-gray-200 rounded-full h-3"><div className="bg-blue-600 h-3 rounded-full transition-all" style={{width:`${uploadProgress}%`}}></div></div><p className="text-sm text-gray-600 mt-2">{uploadProgress}%</p></div>)}
                 </div>
               </label>
@@ -228,10 +272,14 @@ export default function Home() {
                           <input type="text" placeholder="Durée" value={video.duration || ''} onChange={(e) => updateVideoDuration(video.id, e.target.value)} className="text-xs border rounded px-2 py-1 w-20" />
                         </div>
                         <div className="flex flex-wrap gap-2 mb-3">
-                          {['Bertrand','Sébastien','PierreEmmanuel'].map((name) => { const approved = video[`${name.toLowerCase()}_approved`]; return <button key={name} onClick={() => toggleApproval(video.id, name)} className={`px-3 py-1 rounded-full text-xs font-medium ${approved ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'}`}>{approved ? '✓' : '○'} {name === 'PierreEmmanuel' ? 'Pierre E.' : name}</button> })}
+                          {['Bertrand','Sébastien','Pierre Emmanuel'].map((name) => { 
+                            const field = userToColumn[name];
+                            const approved = video[field];
+                            return <button key={name} onClick={() => toggleApproval(video.id, name)} className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${approved ? 'bg-green-100 text-green-800 ring-2 ring-green-500' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>{approved ? '✓' : '○'} {name === 'Pierre Emmanuel' ? 'Pierre E.' : name}</button> 
+                          })}
                         </div>
                         <div className="flex gap-2 flex-wrap">
-                          <button onClick={() => { setSelectedVideoForComment(video.id); loadComments(video.id) }} className="text-xs text-blue-600 hover:underline">💬 Commentaires</button>
+                          <button onClick={() => { setSelectedVideoForComment(selectedVideoForComment === video.id ? null : video.id); loadComments(video.id) }} className="text-xs text-blue-600 hover:underline">💬 Commentaires</button>
                           <a href={video.file_url} download className="text-xs text-green-600 hover:underline">⬇ Télécharger</a>
                           <a href={video.file_url} target="_blank" className="text-xs text-purple-600 hover:underline">▶ Ouvrir</a>
                           <button onClick={() => deleteVideo(video.id)} className="text-xs text-red-600 hover:underline ml-auto">🗑 Supprimer</button>
@@ -239,7 +287,7 @@ export default function Home() {
                         {selectedVideoForComment === video.id && (
                           <div className="mt-3 pt-3 border-t">
                             <div className="space-y-2 max-h-32 overflow-y-auto mb-2">{(comments[video.id] || []).map(c => (<div key={c.id} className="text-xs bg-gray-50 p-2 rounded"><span className="font-medium">{c.user_id}:</span> {c.text}</div>))}</div>
-                            <div className="flex gap-2"><input type="text" value={newComment} onChange={(e) => setNewComment(e.target.value)} placeholder="Commenter..." className="flex-1 text-xs border rounded px-2 py-1" /><button onClick={() => addComment(video.id)} className="text-xs bg-blue-600 text-white px-2 py-1 rounded">Envoyer</button></div>
+                            <div className="flex gap-2"><input type="text" value={newComment} onChange={(e) => setNewComment(e.target.value)} placeholder="Commenter..." className="flex-1 text-xs border rounded px-2 py-1" onKeyPress={(e) => e.key === 'Enter' && addComment(video.id)} /><button onClick={() => addComment(video.id)} className="text-xs bg-blue-600 text-white px-2 py-1 rounded">Envoyer</button></div>
                           </div>
                         )}
                       </div>
@@ -267,6 +315,33 @@ export default function Home() {
                 </div>
               )}
               {filteredVideos.length === 0 && <div className="text-center py-12 text-gray-500">Aucune vidéo</div>}
+            </div>
+          )}
+
+          {currentSection === 'validated' && (
+            <div>
+              <h2 className="text-3xl font-bold text-gray-900 mb-2">Vidéos validées par tous</h2>
+              <p className="text-gray-600 mb-6">Ces vidéos ont été approuvées par Bertrand, Sébastien et Pierre Emmanuel</p>
+              {allValidatedVideos.length === 0 ? (
+                <div className="text-center py-12 text-gray-500">Aucune vidéo validée par tous pour l'instant</div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {allValidatedVideos.map((video) => (
+                    <div key={video.id} className="bg-white rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-shadow border-2 border-green-500">
+                      <div className="bg-green-500 text-white text-center py-1 text-sm font-medium">✅ Validée</div>
+                      <video src={video.file_url} controls preload="metadata" className="w-full aspect-video bg-gray-900" />
+                      <div className="p-4">
+                        <h3 className="font-semibold text-gray-900 mb-2">{video.title}</h3>
+                        <p className="text-sm text-gray-500 mb-3">{video.video_types?.name || 'Sans type'} • {video.duration || '?'}</p>
+                        <div className="flex gap-2 flex-wrap">
+                          <a href={video.file_url} download className="text-xs text-green-600 hover:underline">⬇ Télécharger</a>
+                          <a href={video.file_url} target="_blank" className="text-xs text-purple-600 hover:underline">▶ Ouvrir</a>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
