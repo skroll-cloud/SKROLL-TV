@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useState, useEffect, use } from 'react'
+import { useRouter } from 'next/navigation'
 import { createClient } from '@supabase/supabase-js'
 
 const supabase = createClient(
@@ -15,47 +15,55 @@ const userToColumn = {
   'Pierre Emmanuel': 'pierreemmanuel_approved'
 }
 
-export default function VideoPage() {
-  const params = useParams()
+export default function VideoPage({ params }) {
   const router = useRouter()
-  const videoId = params.id
-
+  const { id } = use(params)
+  
   const [currentUser, setCurrentUser] = useState(null)
   const [video, setVideo] = useState(null)
-  const [videoTypes, setVideoTypes] = useState([])
+  const [allVideos, setAllVideos] = useState([])
+  const [currentIndex, setCurrentIndex] = useState(0)
   const [comments, setComments] = useState([])
   const [newComment, setNewComment] = useState('')
   const [audioTracks, setAudioTracks] = useState([])
   const [uploadingAudio, setUploadingAudio] = useState(false)
-  const [loading, setLoading] = useState(true)
+  const [videoTypes, setVideoTypes] = useState([])
+  
+  // Swipe state
+  const [touchStart, setTouchStart] = useState(null)
+  const [touchEnd, setTouchEnd] = useState(null)
+  const [swipeOffset, setSwipeOffset] = useState(0)
+  const [isAnimating, setIsAnimating] = useState(false)
+  const minSwipeDistance = 50
 
   useEffect(() => {
     const saved = localStorage.getItem('skroll_user')
-    if (saved) {
-      setCurrentUser(saved)
-    } else {
-      router.push('/')
-    }
+    if (saved) setCurrentUser(saved)
+    else router.push('/')
   }, [])
 
   useEffect(() => {
-    if (currentUser && videoId) {
-      loadVideo()
+    if (currentUser) {
+      loadAllVideos()
       loadVideoTypes()
-      loadComments()
-      loadAudioTracks()
     }
-  }, [currentUser, videoId])
+  }, [currentUser])
 
-  async function loadVideo() {
-    setLoading(true)
-    const { data } = await supabase
-      .from('videos')
-      .select('*, video_types(name)')
-      .eq('id', videoId)
-      .single()
-    if (data) setVideo(data)
-    setLoading(false)
+  useEffect(() => {
+    if (allVideos.length > 0 && id) {
+      const index = allVideos.findIndex(v => v.id === id)
+      if (index !== -1) {
+        setCurrentIndex(index)
+        setVideo(allVideos[index])
+        loadComments(id)
+        loadAudioTracks(id)
+      }
+    }
+  }, [allVideos, id])
+
+  async function loadAllVideos() {
+    const { data } = await supabase.from('videos').select('*, video_types(name)').order('uploaded_at', { ascending: false })
+    if (data) setAllVideos(data)
   }
 
   async function loadVideoTypes() {
@@ -63,22 +71,70 @@ export default function VideoPage() {
     if (data) setVideoTypes(data)
   }
 
-  async function loadComments() {
-    const { data } = await supabase
-      .from('comments')
-      .select('*')
-      .eq('video_id', videoId)
-      .order('created_at', { ascending: true })
+  async function loadComments(videoId) {
+    const { data } = await supabase.from('comments').select('*').eq('video_id', videoId).order('created_at', { ascending: true })
     if (data) setComments(data)
   }
 
-  async function loadAudioTracks() {
-    const { data } = await supabase
-      .from('audio_tracks')
-      .select('*')
-      .eq('video_id', videoId)
-      .order('created_at', { ascending: false })
+  async function loadAudioTracks(videoId) {
+    const { data } = await supabase.from('audio_tracks').select('*').eq('video_id', videoId).order('created_at', { ascending: false })
     if (data) setAudioTracks(data)
+  }
+
+  // Swipe handlers
+  const onTouchStart = (e) => {
+    if (isAnimating) return
+    setTouchEnd(null)
+    setTouchStart(e.targetTouches[0].clientX)
+  }
+
+  const onTouchMove = (e) => {
+    if (isAnimating || !touchStart) return
+    const currentX = e.targetTouches[0].clientX
+    setTouchEnd(currentX)
+    const diff = currentX - touchStart
+    // Limit swipe offset
+    const maxOffset = window.innerWidth * 0.4
+    setSwipeOffset(Math.max(-maxOffset, Math.min(maxOffset, diff)))
+  }
+
+  const onTouchEnd = () => {
+    if (!touchStart || !touchEnd || isAnimating) {
+      setSwipeOffset(0)
+      return
+    }
+    
+    const distance = touchStart - touchEnd
+    const isLeftSwipe = distance > minSwipeDistance
+    const isRightSwipe = distance < -minSwipeDistance
+
+    if (isLeftSwipe && currentIndex < allVideos.length - 1) {
+      navigateToVideo(currentIndex + 1)
+    } else if (isRightSwipe && currentIndex > 0) {
+      navigateToVideo(currentIndex - 1)
+    } else {
+      setSwipeOffset(0)
+    }
+  }
+
+  function navigateToVideo(newIndex) {
+    if (newIndex < 0 || newIndex >= allVideos.length) return
+    setIsAnimating(true)
+    const direction = newIndex > currentIndex ? -1 : 1
+    setSwipeOffset(direction * window.innerWidth)
+    
+    setTimeout(() => {
+      router.push(`/video/${allVideos[newIndex].id}`)
+      setSwipeOffset(0)
+      setIsAnimating(false)
+    }, 200)
+  }
+
+  async function addComment() {
+    if (!newComment.trim() || !video) return
+    await supabase.from('comments').insert([{ video_id: video.id, user_id: currentUser, text: newComment }])
+    setNewComment('')
+    loadComments(video.id)
   }
 
   async function toggleMyApproval() {
@@ -86,345 +142,261 @@ export default function VideoPage() {
     const field = userToColumn[currentUser]
     if (!field) return
     const newValue = !video[field]
-    await supabase.from('videos').update({ [field]: newValue }).eq('id', videoId)
-    loadVideo()
+    await supabase.from('videos').update({ [field]: newValue }).eq('id', video.id)
+    loadAllVideos()
   }
 
   async function updateVideoType(typeId) {
-    await supabase.from('videos').update({ type_id: typeId || null }).eq('id', videoId)
-    loadVideo()
-  }
-
-  async function updateVideoTitle(title) {
-    await supabase.from('videos').update({ title }).eq('id', videoId)
-    loadVideo()
-  }
-
-  async function addComment() {
-    if (!newComment.trim()) return
-    await supabase.from('comments').insert([{
-      video_id: videoId,
-      user_id: currentUser,
-      text: newComment
-    }])
-    setNewComment('')
-    loadComments()
-  }
-
-  async function deleteComment(commentId) {
-    if (!confirm('Supprimer ce commentaire ?')) return
-    await supabase.from('comments').delete().eq('id', commentId)
-    loadComments()
+    if (!video) return
+    await supabase.from('videos').update({ type_id: typeId || null }).eq('id', video.id)
+    loadAllVideos()
   }
 
   async function handleAudioUpload(event) {
     const file = event.target.files?.[0]
-    if (!file) return
+    if (!file || !video) return
     setUploadingAudio(true)
-
-    const filePath = `audio/${videoId}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`
+    const filePath = `audio/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`
     const { error } = await supabase.storage.from('files').upload(filePath, file)
-    
-    if (error) {
-      alert(`Erreur: ${error.message}`)
-      setUploadingAudio(false)
-      return
-    }
-
+    if (error) { alert(`Erreur: ${error.message}`); setUploadingAudio(false); return }
     const { data: urlData } = supabase.storage.from('files').getPublicUrl(filePath)
-    
     await supabase.from('audio_tracks').insert([{
-      video_id: videoId,
+      video_id: video.id,
       name: file.name,
       file_url: urlData.publicUrl,
-      track_type: file.name.toLowerCase().includes('edl') ? 'edl' : 'audio',
+      track_type: file.name.split('.').pop()?.toUpperCase() || 'AUDIO',
       uploaded_by: currentUser
     }])
-
     setUploadingAudio(false)
-    loadAudioTracks()
+    loadAudioTracks(video.id)
     event.target.value = ''
   }
 
   async function deleteAudioTrack(trackId) {
     if (!confirm('Supprimer cette piste ?')) return
     await supabase.from('audio_tracks').delete().eq('id', trackId)
-    loadAudioTracks()
+    loadAudioTracks(video.id)
   }
 
   function formatDate(dateString) {
     const date = new Date(dateString)
-    return date.toLocaleDateString('fr-FR', { 
-      day: 'numeric', 
-      month: 'short', 
-      hour: '2-digit', 
-      minute: '2-digit' 
-    })
-  }
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-gray-500">Chargement...</div>
-      </div>
-    )
+    const now = new Date()
+    const diff = now - date
+    const minutes = Math.floor(diff / 60000)
+    const hours = Math.floor(diff / 3600000)
+    const days = Math.floor(diff / 86400000)
+    if (minutes < 1) return "À l'instant"
+    if (minutes < 60) return `${minutes}min`
+    if (hours < 24) return `${hours}h`
+    if (days < 7) return `${days}j`
+    return date.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })
   }
 
   if (!video) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <p className="text-gray-500 mb-4">Vidéo introuvable</p>
-          <button onClick={() => router.push('/')} className="text-blue-600 hover:underline">← Retour</button>
-        </div>
-      </div>
-    )
+    return <div className="min-h-screen bg-gray-50 flex items-center justify-center"><div className="text-gray-500">Chargement...</div></div>
   }
 
   const myField = userToColumn[currentUser]
   const myApproval = video[myField]
   const allApproved = video.bertrand_approved && video.sebastien_approved && video.pierreemmanuel_approved
+  const prevVideo = currentIndex > 0 ? allVideos[currentIndex - 1] : null
+  const nextVideo = currentIndex < allVideos.length - 1 ? allVideos[currentIndex + 1] : null
 
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <header className="bg-white border-b border-gray-200 sticky top-0 z-50 shadow-sm">
-        <div className="max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
-          <div className="flex items-center gap-4">
-            <button onClick={() => router.push('/')} className="text-gray-600 hover:text-gray-900">← Retour</button>
-            <h1 className="text-xl font-bold text-blue-600">SKROLL.TV</h1>
+      <header className="bg-white border-b sticky top-0 z-50 shadow-sm">
+        <div className="max-w-4xl mx-auto px-4 py-3 flex items-center justify-between">
+          <button onClick={() => router.push('/')} className="flex items-center gap-2 text-gray-600 hover:text-gray-900">
+            <span className="text-xl">←</span>
+            <span className="font-medium">Retour</span>
+          </button>
+          <div className="flex items-center gap-2 text-sm text-gray-500">
+            <span>{currentIndex + 1} / {allVideos.length}</span>
           </div>
-          <div className="flex items-center gap-4">
-            <span className="text-gray-700 font-medium">{currentUser}</span>
+          <div className="flex gap-2">
+            <button 
+              onClick={() => prevVideo && navigateToVideo(currentIndex - 1)} 
+              disabled={!prevVideo}
+              className="px-3 py-1 bg-gray-100 rounded-lg disabled:opacity-30"
+            >←</button>
+            <button 
+              onClick={() => nextVideo && navigateToVideo(currentIndex + 1)} 
+              disabled={!nextVideo}
+              className="px-3 py-1 bg-gray-100 rounded-lg disabled:opacity-30"
+            >→</button>
           </div>
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-6 py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          
-          {/* Colonne principale : Vidéo */}
-          <div className="lg:col-span-2">
-            {/* Lecteur vidéo */}
-            <div className="bg-black rounded-xl overflow-hidden mb-6">
-              <video 
-                src={video.file_url} 
-                controls 
-                className="w-full aspect-video"
-                preload="metadata"
-              />
-            </div>
+      {/* Progress bar */}
+      <div className="h-1 bg-gray-200 flex">
+        {allVideos.map((_, i) => (
+          <div 
+            key={i} 
+            className={`flex-1 transition-colors ${i === currentIndex ? 'bg-blue-600' : i < currentIndex ? 'bg-blue-300' : 'bg-gray-200'}`} 
+          />
+        ))}
+      </div>
 
-            {/* Infos vidéo */}
-            <div className="bg-white rounded-xl p-6 shadow-sm mb-6">
+      {/* Main content with swipe */}
+      <div 
+        className="max-w-4xl mx-auto"
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+        style={{
+          transform: `translateX(${swipeOffset}px)`,
+          transition: isAnimating ? 'transform 0.2s ease-out' : 'none'
+        }}
+      >
+        {/* Video player */}
+        <div className="relative bg-black">
+          {allApproved && (
+            <div className="absolute top-4 right-4 z-10 bg-green-500 text-white px-3 py-1 rounded-full text-sm font-medium">
+              ✅ Validée par tous
+            </div>
+          )}
+          <video 
+            src={video.file_url} 
+            controls 
+            className="w-full max-h-[60vh] object-contain"
+            preload="metadata"
+          />
+        </div>
+
+        {/* Swipe hint (mobile only) */}
+        <div className="md:hidden text-center py-2 text-gray-400 text-sm bg-gray-100">
+          ← Swipez pour changer de vidéo →
+        </div>
+
+        <div className="p-4 md:p-6">
+          {/* Title and type */}
+          <div className="mb-4">
+            <h1 className="text-2xl font-bold text-gray-900 mb-2">{video.title}</h1>
+            <div className="flex flex-wrap gap-2 items-center">
+              <select 
+                value={video.type_id || ''} 
+                onChange={(e) => updateVideoType(e.target.value)}
+                className="border rounded-lg px-3 py-1 text-sm"
+              >
+                <option value="">Sans type</option>
+                {videoTypes.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+              <span className="text-sm text-gray-500">
+                Uploadé par {video.uploaded_by} • {formatDate(video.uploaded_at)}
+              </span>
+            </div>
+          </div>
+
+          {/* Validation */}
+          <div className="mb-6">
+            <button 
+              onClick={toggleMyApproval} 
+              className={`w-full md:w-auto px-6 py-3 rounded-xl font-medium transition-all ${myApproval ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+            >
+              {myApproval ? '✓ Validée par moi' : '○ Valider cette vidéo'}
+            </button>
+            
+            <div className="flex gap-3 mt-4">
+              <span className={`px-3 py-2 rounded-full text-sm ${video.bertrand_approved ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-400'}`}>
+                Bertrand {video.bertrand_approved ? '✓' : ''}
+              </span>
+              <span className={`px-3 py-2 rounded-full text-sm ${video.sebastien_approved ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-400'}`}>
+                Sébastien {video.sebastien_approved ? '✓' : ''}
+              </span>
+              <span className={`px-3 py-2 rounded-full text-sm ${video.pierreemmanuel_approved ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-400'}`}>
+                Pierre E. {video.pierreemmanuel_approved ? '✓' : ''}
+              </span>
+            </div>
+          </div>
+
+          {/* Audio tracks */}
+          <div className="mb-6 bg-white rounded-xl p-4 shadow-sm">
+            <h2 className="font-semibold text-lg mb-3">🎵 Pistes audio ({audioTracks.length})</h2>
+            
+            {audioTracks.length > 0 && (
+              <div className="space-y-2 mb-4">
+                {audioTracks.map(track => (
+                  <div key={track.id} className="flex items-center justify-between bg-gray-50 rounded-lg p-3">
+                    <div>
+                      <p className="font-medium text-sm">{track.name}</p>
+                      <p className="text-xs text-gray-500">{track.track_type} • {track.uploaded_by}</p>
+                    </div>
+                    <div className="flex gap-2">
+                      <a href={track.file_url} download className="text-blue-600 text-sm">⬇</a>
+                      <button onClick={() => deleteAudioTrack(track.id)} className="text-red-500 text-sm">🗑</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            
+            <label className="block">
+              <div className="border-2 border-dashed border-gray-300 hover:border-blue-500 rounded-lg p-4 text-center cursor-pointer transition-colors">
+                <input type="file" accept="audio/*,.wav,.mp3,.aac,.edl,.xml" onChange={handleAudioUpload} disabled={uploadingAudio} className="hidden" />
+                <span className="text-gray-600">{uploadingAudio ? 'Upload...' : '+ Ajouter une piste audio'}</span>
+              </div>
+            </label>
+          </div>
+
+          {/* Comments */}
+          <div className="bg-white rounded-xl p-4 shadow-sm">
+            <h2 className="font-semibold text-lg mb-3">💬 Commentaires ({comments.length})</h2>
+            
+            {comments.length > 0 && (
+              <div className="space-y-3 mb-4 max-h-80 overflow-y-auto">
+                {comments.map(c => (
+                  <div key={c.id} className="bg-gray-50 rounded-lg p-3">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="font-medium text-sm">{c.user_id}</span>
+                      <span className="text-gray-400 text-xs">{formatDate(c.created_at)}</span>
+                    </div>
+                    <p className="text-gray-700">{c.text}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+            
+            <div className="flex gap-2">
               <input
                 type="text"
-                value={video.title}
-                onChange={(e) => updateVideoTitle(e.target.value)}
-                className="text-2xl font-bold text-gray-900 w-full border-0 border-b border-transparent hover:border-gray-300 focus:border-blue-500 focus:outline-none pb-2 mb-4"
+                value={newComment}
+                onChange={(e) => setNewComment(e.target.value)}
+                onKeyPress={(e) => e.key === 'Enter' && addComment()}
+                placeholder="Ajouter un commentaire..."
+                className="flex-1 border rounded-lg px-4 py-2"
               />
-              
-              <div className="flex flex-wrap gap-4 items-center mb-4">
-                <select 
-                  value={video.type_id || ''} 
-                  onChange={(e) => updateVideoType(e.target.value)}
-                  className="border rounded-lg px-3 py-2"
-                >
-                  <option value="">Type...</option>
-                  {videoTypes.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-                </select>
-                
-                <span className="text-sm text-gray-500">
-                  Uploadé par {video.uploaded_by} • {video.duration || '?'}
-                </span>
-              </div>
-
-              {/* Validations */}
-              <div className="border-t pt-4">
-                <h3 className="font-semibold mb-3">Validations</h3>
-                <div className="flex flex-wrap gap-3">
-                  {['Bertrand', 'Sébastien', 'Pierre Emmanuel'].map((name) => {
-                    const field = userToColumn[name]
-                    const approved = video[field]
-                    const isMe = name === currentUser
-
-                    return (
-                      <button
-                        key={name}
-                        onClick={isMe ? toggleMyApproval : undefined}
-                        disabled={!isMe}
-                        className={`px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2
-                          ${approved 
-                            ? 'bg-green-100 text-green-800 ring-2 ring-green-500' 
-                            : 'bg-gray-100 text-gray-600'
-                          }
-                          ${isMe 
-                            ? 'cursor-pointer hover:ring-2 hover:ring-blue-400' 
-                            : 'cursor-not-allowed opacity-70'
-                          }
-                        `}
-                      >
-                        {approved ? '✓' : '○'} 
-                        {name === 'Pierre Emmanuel' ? 'Pierre E.' : name}
-                        {isMe && <span className="text-xs">(vous)</span>}
-                      </button>
-                    )
-                  })}
-                </div>
-                {allApproved && (
-                  <div className="mt-3 bg-green-50 text-green-800 px-4 py-2 rounded-lg text-sm">
-                    ✅ Vidéo validée par tous ! Prête pour export.
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Commentaires */}
-            <div className="bg-white rounded-xl p-6 shadow-sm">
-              <h3 className="font-semibold mb-4">💬 Commentaires ({comments.length})</h3>
-              
-              {/* Liste des commentaires */}
-              <div className="space-y-4 mb-4 max-h-96 overflow-y-auto">
-                {comments.length === 0 ? (
-                  <p className="text-gray-500 text-sm">Aucun commentaire pour l'instant</p>
-                ) : (
-                  comments.map(comment => (
-                    <div key={comment.id} className="bg-gray-50 rounded-lg p-4">
-                      <div className="flex justify-between items-start mb-2">
-                        <div>
-                          <span className="font-medium text-gray-900">{comment.user_id}</span>
-                          <span className="text-xs text-gray-500 ml-2">{formatDate(comment.created_at)}</span>
-                        </div>
-                        {comment.user_id === currentUser && (
-                          <button 
-                            onClick={() => deleteComment(comment.id)}
-                            className="text-red-500 hover:text-red-700 text-xs"
-                          >
-                            Supprimer
-                          </button>
-                        )}
-                      </div>
-                      <p className="text-gray-700">{comment.text}</p>
-                    </div>
-                  ))
-                )}
-              </div>
-
-              {/* Nouveau commentaire */}
-              <div className="flex gap-2 border-t pt-4">
-                <input
-                  type="text"
-                  value={newComment}
-                  onChange={(e) => setNewComment(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && addComment()}
-                  placeholder="Ajouter un commentaire..."
-                  className="flex-1 border rounded-lg px-4 py-2"
-                />
-                <button 
-                  onClick={addComment}
-                  className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
-                >
-                  Envoyer
-                </button>
-              </div>
+              <button onClick={addComment} className="bg-blue-600 text-white px-4 py-2 rounded-lg">Envoyer</button>
             </div>
           </div>
 
-          {/* Colonne latérale : Pistes audio */}
-          <div className="lg:col-span-1">
-            <div className="bg-white rounded-xl p-6 shadow-sm sticky top-24">
-              <h3 className="font-semibold mb-4">🎵 Pistes audio & fichiers ({audioTracks.length})</h3>
-              
-              {/* Upload */}
-              <label className="block mb-4 cursor-pointer">
-                <div className="border-2 border-dashed border-gray-300 hover:border-blue-500 rounded-lg p-4 text-center transition-colors">
-                  <input
-                    type="file"
-                    accept="audio/*,.edl,.xml,.aaf"
-                    onChange={handleAudioUpload}
-                    disabled={uploadingAudio}
-                    className="hidden"
-                  />
-                  <div className="text-2xl mb-1">{uploadingAudio ? '⏳' : '📤'}</div>
-                  <div className="text-sm text-gray-600">
-                    {uploadingAudio ? 'Upload en cours...' : 'Ajouter une piste'}
-                  </div>
-                  <div className="text-xs text-gray-400 mt-1">WAV, MP3, AAC, EDL, XML...</div>
-                </div>
-              </label>
+          {/* Download */}
+          <div className="mt-6">
+            <a 
+              href={video.file_url} 
+              download={`${video.title}.mp4`}
+              className="inline-flex items-center gap-2 bg-green-600 text-white px-6 py-3 rounded-xl font-medium hover:bg-green-700"
+            >
+              ⬇ Télécharger la vidéo
+            </a>
+          </div>
 
-              {/* Liste des pistes */}
-              <div className="space-y-3">
-                {audioTracks.length === 0 ? (
-                  <p className="text-gray-500 text-sm text-center py-4">Aucune piste audio</p>
-                ) : (
-                  audioTracks.map(track => (
-                    <div key={track.id} className="bg-gray-50 rounded-lg p-3">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="text-lg">
-                              {track.track_type === 'edl' ? '📋' : '🎵'}
-                            </span>
-                            <p className="font-medium text-sm truncate">{track.name}</p>
-                          </div>
-                          <p className="text-xs text-gray-500 mt-1">
-                            par {track.uploaded_by} • {formatDate(track.created_at)}
-                          </p>
-                        </div>
-                        <div className="flex gap-1">
-                          <a
-                            href={track.file_url}
-                            download
-                            className="text-blue-600 hover:text-blue-800 text-xs px-2 py-1 bg-blue-50 rounded"
-                          >
-                            ⬇
-                          </a>
-                          <button
-                            onClick={() => deleteAudioTrack(track.id)}
-                            className="text-red-600 hover:text-red-800 text-xs px-2 py-1 bg-red-50 rounded"
-                          >
-                            ✕
-                          </button>
-                        </div>
-                      </div>
-                      
-                      {/* Lecteur audio si c'est un fichier audio */}
-                      {track.track_type === 'audio' && (
-                        <audio 
-                          src={track.file_url} 
-                          controls 
-                          className="w-full mt-2 h-8"
-                          preload="metadata"
-                        />
-                      )}
-                    </div>
-                  ))
-                )}
-              </div>
-
-              {/* Actions groupées */}
-              {audioTracks.length > 0 && (
-                <div className="mt-4 pt-4 border-t">
-                  <button
-                    onClick={() => {
-                      audioTracks.forEach(track => {
-                        const a = document.createElement('a')
-                        a.href = track.file_url
-                        a.download = track.name
-                        a.click()
-                      })
-                    }}
-                    className="w-full bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg text-sm"
-                  >
-                    ⬇ Télécharger toutes les pistes
-                  </button>
-                </div>
-              )}
-            </div>
+          {/* Navigation hints */}
+          <div className="mt-8 flex justify-between text-sm text-gray-500">
+            {prevVideo ? (
+              <button onClick={() => navigateToVideo(currentIndex - 1)} className="hover:text-blue-600">
+                ← {prevVideo.title.substring(0, 20)}...
+              </button>
+            ) : <span></span>}
+            {nextVideo ? (
+              <button onClick={() => navigateToVideo(currentIndex + 1)} className="hover:text-blue-600">
+                {nextVideo.title.substring(0, 20)}... →
+              </button>
+            ) : <span></span>}
           </div>
         </div>
-      </main>
+      </div>
     </div>
   )
 }
