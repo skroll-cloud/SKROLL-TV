@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@supabase/supabase-js'
 
@@ -28,6 +28,7 @@ export default function Home() {
   const [showNewPassword, setShowNewPassword] = useState(false)
   const [passwordMessage, setPasswordMessage] = useState('')
   const [isChangingPassword, setIsChangingPassword] = useState(false)
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   
   const [videos, setVideos] = useState([])
   const [videoTypes, setVideoTypes] = useState([])
@@ -35,6 +36,8 @@ export default function Home() {
   const [uploadProgress, setUploadProgress] = useState(0)
   const [uploadStatus, setUploadStatus] = useState('')
   const [viewMode, setViewMode] = useState('grid')
+  const [mobileViewMode, setMobileViewMode] = useState('swipe')
+  const [currentVideoIndex, setCurrentVideoIndex] = useState(0)
   const [filterType, setFilterType] = useState('all')
   const [filterValidation, setFilterValidation] = useState('all')
   const [sortBy, setSortBy] = useState('recent')
@@ -51,6 +54,12 @@ export default function Home() {
   const [replyText, setReplyText] = useState('')
   const [latestCommentByVideo, setLatestCommentByVideo] = useState({})
   
+  // Swipe state
+  const [touchStart, setTouchStart] = useState(null)
+  const [touchEnd, setTouchEnd] = useState(null)
+  const [isMobile, setIsMobile] = useState(false)
+  const swipeContainerRef = useRef(null)
+  
   const [tasks, setTasks] = useState([])
   const [newTask, setNewTask] = useState({ name: '', description: '', assignee: '', deadline: '', folder_name: 'Production' })
   const taskFolders = ['Production', 'Visual Identity', 'Communication', 'Admin', 'Autre']
@@ -65,6 +74,14 @@ export default function Home() {
   
   const [sharedFiles, setSharedFiles] = useState([])
   const [uploadingFile, setUploadingFile] = useState(false)
+
+  // Detect mobile
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 768)
+    checkMobile()
+    window.addEventListener('resize', checkMobile)
+    return () => window.removeEventListener('resize', checkMobile)
+  }, [])
 
   useEffect(() => { 
     const saved = localStorage.getItem('skroll_user')
@@ -85,6 +102,32 @@ export default function Home() {
       loadAllComments()
     } 
   }, [currentUser])
+
+  // Swipe handlers
+  const minSwipeDistance = 50
+  
+  const onTouchStart = (e) => {
+    setTouchEnd(null)
+    setTouchStart(e.targetTouches[0].clientX)
+  }
+  
+  const onTouchMove = (e) => {
+    setTouchEnd(e.targetTouches[0].clientX)
+  }
+  
+  const onTouchEnd = () => {
+    if (!touchStart || !touchEnd) return
+    const distance = touchStart - touchEnd
+    const isLeftSwipe = distance > minSwipeDistance
+    const isRightSwipe = distance < -minSwipeDistance
+    
+    if (isLeftSwipe && currentVideoIndex < filteredVideos.length - 1) {
+      setCurrentVideoIndex(prev => prev + 1)
+    }
+    if (isRightSwipe && currentVideoIndex > 0) {
+      setCurrentVideoIndex(prev => prev - 1)
+    }
+  }
 
   async function handleLogin(userName) {
     const { data } = await supabase.from('users').select('*').eq('name', userName).eq('password', password).single()
@@ -227,11 +270,6 @@ export default function Home() {
     loadVideos() 
   }
   
-  async function updateVideoType(videoId, typeId) { 
-    await supabase.from('videos').update({ type_id: typeId || null }).eq('id', videoId)
-    loadVideos() 
-  }
-  
   async function deleteVideo(videoId) { 
     if (!confirm('Supprimer cette vidéo ?')) return
     await supabase.from('videos').delete().eq('id', videoId)
@@ -253,28 +291,19 @@ export default function Home() {
 
   function toggleVideoSelection(videoId) {
     const newSelection = new Set(selectedVideos)
-    if (newSelection.has(videoId)) {
-      newSelection.delete(videoId)
-    } else {
-      newSelection.add(videoId)
-    }
+    if (newSelection.has(videoId)) newSelection.delete(videoId)
+    else newSelection.add(videoId)
     setSelectedVideos(newSelection)
   }
   
   function selectAllVideos() {
-    if (selectedVideos.size === filteredVideos.length) {
-      setSelectedVideos(new Set())
-    } else {
-      setSelectedVideos(new Set(filteredVideos.map(v => v.id)))
-    }
+    if (selectedVideos.size === filteredVideos.length) setSelectedVideos(new Set())
+    else setSelectedVideos(new Set(filteredVideos.map(v => v.id)))
   }
   
   async function downloadSelectedVideos() {
     if (selectedVideos.size === 0) return
     const selectedVideosList = videos.filter(v => selectedVideos.has(v.id))
-    const videoIds = Array.from(selectedVideos)
-    const { data: audioTracks } = await supabase.from('audio_tracks').select('*').in('video_id', videoIds)
-    
     for (const video of selectedVideosList) {
       const a = document.createElement('a')
       a.href = video.file_url
@@ -282,18 +311,6 @@ export default function Home() {
       a.click()
       await new Promise(r => setTimeout(r, 500))
     }
-    
-    if (audioTracks && audioTracks.length > 0) {
-      for (const track of audioTracks) {
-        const a = document.createElement('a')
-        a.href = track.file_url
-        a.download = track.name
-        a.click()
-        await new Promise(r => setTimeout(r, 500))
-      }
-    }
-    
-    alert(`${selectedVideosList.length} vidéo(s) et ${audioTracks?.length || 0} piste(s) audio téléchargées !`)
   }
 
   async function loadTasks() { 
@@ -307,7 +324,7 @@ export default function Home() {
     loadTasks() 
   }
   async function deleteTask(taskId) { 
-    if (!confirm('Supprimer cette tâche ?')) return
+    if (!confirm('Supprimer ?')) return
     await supabase.from('tasks').delete().eq('id', taskId)
     loadTasks() 
   }
@@ -332,7 +349,7 @@ export default function Home() {
     loadIdeas() 
   }
   async function deleteIdea(ideaId) { 
-    if (!confirm('Supprimer cette idée ?')) return
+    if (!confirm('Supprimer ?')) return
     await supabase.from('ideas').delete().eq('id', ideaId)
     loadIdeas() 
   }
@@ -352,7 +369,7 @@ export default function Home() {
     loadContacts() 
   }
   async function deleteContact(contactId) { 
-    if (!confirm('Supprimer ce contact ?')) return
+    if (!confirm('Supprimer ?')) return
     await supabase.from('contacts').delete().eq('id', contactId)
     loadContacts() 
   }
@@ -372,10 +389,9 @@ export default function Home() {
     await supabase.from('shared_files').insert([{ name: file.name, file_url: urlData.publicUrl, file_type: file.type, uploaded_by: currentUser }])
     setUploadingFile(false)
     loadSharedFiles()
-    event.target.value = ''
   }
   async function deleteFile(fileId) { 
-    if (!confirm('Supprimer ce fichier ?')) return
+    if (!confirm('Supprimer ?')) return
     await supabase.from('shared_files').delete().eq('id', fileId)
     loadSharedFiles() 
   }
@@ -387,26 +403,19 @@ export default function Home() {
     const minutes = Math.floor(diff / 60000)
     const hours = Math.floor(diff / 3600000)
     const days = Math.floor(diff / 86400000)
-    
     if (minutes < 1) return "À l'instant"
-    if (minutes < 60) return `Il y a ${minutes}min`
-    if (hours < 24) return `Il y a ${hours}h`
-    if (days < 7) return `Il y a ${days}j`
+    if (minutes < 60) return `${minutes}min`
+    if (hours < 24) return `${hours}h`
+    if (days < 7) return `${days}j`
     return date.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })
   }
 
   function getFilteredVideos() {
     let filtered = videos
-    
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase()
-      filtered = filtered.filter(v => 
-        v.title.toLowerCase().includes(query) ||
-        v.video_types?.name?.toLowerCase().includes(query) ||
-        v.uploaded_by?.toLowerCase().includes(query)
-      )
+      filtered = filtered.filter(v => v.title.toLowerCase().includes(query) || v.video_types?.name?.toLowerCase().includes(query))
     }
-    
     if (filterType !== 'all') filtered = filtered.filter(v => v.type_id === filterType)
     if (filterValidation === 'to_validate' && currentUser) { 
       const f = userToColumn[currentUser]
@@ -419,26 +428,22 @@ export default function Home() {
     else if (filterValidation === 'all_validated') {
       filtered = filtered.filter(v => v.bertrand_approved && v.sebastien_approved && v.pierreemmanuel_approved)
     }
-
-    // Tri
-    if (sortBy === 'recent') {
-      filtered.sort((a, b) => new Date(b.uploaded_at) - new Date(a.uploaded_at))
-    } else if (sortBy === 'recent_comments') {
+    if (sortBy === 'recent') filtered.sort((a, b) => new Date(b.uploaded_at) - new Date(a.uploaded_at))
+    else if (sortBy === 'recent_comments') {
       filtered.sort((a, b) => {
         const aDate = latestCommentByVideo[a.id] ? new Date(latestCommentByVideo[a.id]) : new Date(0)
         const bDate = latestCommentByVideo[b.id] ? new Date(latestCommentByVideo[b.id]) : new Date(0)
         return bDate - aDate
       })
-    } else if (sortBy === 'most_comments') {
-      filtered.sort((a, b) => (commentCounts[b.id] || 0) - (commentCounts[a.id] || 0))
     }
-
+    else if (sortBy === 'most_comments') filtered.sort((a, b) => (commentCounts[b.id] || 0) - (commentCounts[a.id] || 0))
     return filtered
   }
   
   const filteredVideos = getFilteredVideos()
   const toValidateCount = currentUser ? videos.filter(v => { const f = userToColumn[currentUser]; return f && !v[f] }).length : 0
   const allValidatedVideos = videos.filter(v => v.bertrand_approved && v.sebastien_approved && v.pierreemmanuel_approved)
+  const currentVideo = filteredVideos[currentVideoIndex]
 
   if (!currentUser) {
     return (
@@ -448,14 +453,106 @@ export default function Home() {
           <p className="text-gray-600 mb-8 text-center">Connectez-vous</p>
           {loginError && <p className="text-red-500 text-center mb-4">{loginError}</p>}
           <div className="relative mb-4">
-            <input type={showPassword ? "text" : "password"} placeholder="Mot de passe" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full border border-gray-300 rounded-lg px-4 py-3 pr-12" />
-            <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700">{showPassword ? '🙈' : '👁'}</button>
+            <input type={showPassword ? "text" : "password"} placeholder="Mot de passe" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full border rounded-lg px-4 py-3 pr-12" />
+            <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">{showPassword ? '🙈' : '👁'}</button>
           </div>
           <div className="space-y-3">
             {['Bertrand', 'Sébastien', 'Pierre Emmanuel'].map((name) => (
-              <button key={name} onClick={() => handleLogin(name)} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-4 px-6 rounded-xl transition-colors">{name}</button>
+              <button key={name} onClick={() => handleLogin(name)} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-4 px-6 rounded-xl">{name}</button>
             ))}
           </div>
+        </div>
+      </div>
+    )
+  }
+
+  // Mobile swipe view for videos
+  const renderMobileSwipeView = () => {
+    if (!currentVideo) return <div className="text-center py-12 text-gray-500">Aucune vidéo</div>
+    
+    const myField = userToColumn[currentUser]
+    const myApproval = currentVideo[myField]
+    const allApproved = currentVideo.bertrand_approved && currentVideo.sebastien_approved && currentVideo.pierreemmanuel_approved
+    const commentCount = commentCounts[currentVideo.id] || 0
+    const isExpanded = expandedComments === currentVideo.id
+    const comments = videoComments[currentVideo.id] || []
+    
+    return (
+      <div 
+        ref={swipeContainerRef}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+        className="bg-white rounded-xl overflow-hidden shadow-lg"
+      >
+        {/* Progress bar */}
+        <div className="h-1 bg-gray-200 flex">
+          {filteredVideos.map((_, i) => (
+            <div key={i} className={`flex-1 ${i === currentVideoIndex ? 'bg-blue-600' : i < currentVideoIndex ? 'bg-blue-300' : 'bg-gray-200'}`} />
+          ))}
+        </div>
+        
+        {/* Video counter */}
+        <div className="bg-gray-100 px-4 py-2 flex justify-between items-center">
+          <span className="text-sm text-gray-600">{currentVideoIndex + 1} / {filteredVideos.length}</span>
+          <div className="flex gap-2">
+            <button onClick={() => setCurrentVideoIndex(Math.max(0, currentVideoIndex - 1))} disabled={currentVideoIndex === 0} className="px-3 py-1 bg-gray-200 rounded disabled:opacity-30">←</button>
+            <button onClick={() => setCurrentVideoIndex(Math.min(filteredVideos.length - 1, currentVideoIndex + 1))} disabled={currentVideoIndex === filteredVideos.length - 1} className="px-3 py-1 bg-gray-200 rounded disabled:opacity-30">→</button>
+          </div>
+        </div>
+        
+        {/* Video */}
+        <div className="relative" onClick={() => router.push(`/video/${currentVideo.id}`)}>
+          {allApproved && <div className="absolute top-2 right-2 z-10 bg-green-500 text-white text-xs px-2 py-1 rounded-full">✅</div>}
+          <video src={currentVideo.file_url} controls preload="metadata" className="w-full aspect-video bg-gray-900" />
+        </div>
+        
+        {/* Info */}
+        <div className="p-4">
+          <h3 className="font-bold text-lg mb-2">{currentVideo.title}</h3>
+          
+          <div className="flex flex-wrap gap-2 mb-4">
+            {currentVideo.video_types?.name && <span className="text-xs bg-gray-100 px-2 py-1 rounded">{currentVideo.video_types.name}</span>}
+            <button onClick={() => toggleComments(currentVideo.id)} className={`text-xs px-2 py-1 rounded ${commentCount > 0 ? 'bg-yellow-100 text-yellow-800' : 'bg-gray-100'}`}>
+              💬 {commentCount || 'Commenter'}
+            </button>
+          </div>
+          
+          {/* Validation button */}
+          <button onClick={() => toggleMyApproval(currentVideo.id)} className={`w-full mb-4 px-4 py-3 rounded-xl text-base font-medium ${myApproval ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-700'}`}>
+            {myApproval ? '✓ Validée par moi' : '○ Valider cette vidéo'}
+          </button>
+          
+          {/* Other validations */}
+          <div className="flex justify-center gap-4 mb-4">
+            <span className={`px-3 py-2 rounded-full text-sm ${currentVideo.bertrand_approved ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-400'}`}>Bertrand {currentVideo.bertrand_approved ? '✓' : ''}</span>
+            <span className={`px-3 py-2 rounded-full text-sm ${currentVideo.sebastien_approved ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-400'}`}>Sébastien {currentVideo.sebastien_approved ? '✓' : ''}</span>
+            <span className={`px-3 py-2 rounded-full text-sm ${currentVideo.pierreemmanuel_approved ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-400'}`}>Pierre E. {currentVideo.pierreemmanuel_approved ? '✓' : ''}</span>
+          </div>
+          
+          {/* Comments */}
+          {isExpanded && (
+            <div className="border-t pt-4">
+              {comments.length > 0 && (
+                <div className="space-y-2 mb-3 max-h-40 overflow-y-auto">
+                  {comments.map(c => (
+                    <div key={c.id} className="bg-gray-50 rounded p-2 text-sm">
+                      <span className="font-medium">{c.user_id}</span>
+                      <span className="text-gray-400 text-xs ml-2">{formatDate(c.created_at)}</span>
+                      <p className="text-gray-600">{c.text}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="flex gap-2">
+                <input type="text" value={newComment} onChange={(e) => setNewComment(e.target.value)} placeholder="Commenter..." className="flex-1 border rounded-lg px-3 py-2" />
+                <button onClick={() => addQuickComment(currentVideo.id)} className="bg-blue-600 text-white px-4 py-2 rounded-lg">↑</button>
+              </div>
+            </div>
+          )}
+          
+          {/* Swipe hint */}
+          <p className="text-center text-gray-400 text-sm mt-4">← Swipez pour naviguer →</p>
         </div>
       </div>
     )
@@ -468,34 +565,73 @@ export default function Home() {
           <div className="bg-white rounded-xl p-6 max-w-sm w-full mx-4">
             <h3 className="text-lg font-semibold mb-4">Changer le mot de passe</h3>
             <div className="relative mb-3">
-              <input type={showNewPassword ? "text" : "password"} placeholder="Nouveau mot de passe" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} className="w-full border rounded-lg px-3 py-2 pr-10" />
-              <button type="button" onClick={() => setShowNewPassword(!showNewPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">{showNewPassword ? '🙈' : '👁'}</button>
+              <input type={showNewPassword ? "text" : "password"} placeholder="Nouveau" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} className="w-full border rounded-lg px-3 py-2 pr-10" />
+              <button onClick={() => setShowNewPassword(!showNewPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">{showNewPassword ? '🙈' : '👁'}</button>
             </div>
             <input type={showNewPassword ? "text" : "password"} placeholder="Confirmer" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} className="w-full border rounded-lg px-3 py-2 mb-3" />
             {passwordMessage && <p className={`text-sm mb-3 ${passwordMessage.includes('✓') ? 'text-green-600' : 'text-red-500'}`}>{passwordMessage}</p>}
             <div className="flex gap-2">
-              <button onClick={() => { setShowPasswordModal(false); setPasswordMessage(''); setNewPassword(''); setConfirmPassword('') }} className="flex-1 px-4 py-2 bg-gray-200 rounded-lg hover:bg-gray-300">Annuler</button>
-              <button onClick={handleChangePassword} disabled={isChangingPassword} className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">{isChangingPassword ? '...' : 'Changer'}</button>
+              <button onClick={() => { setShowPasswordModal(false); setPasswordMessage('') }} className="flex-1 px-4 py-2 bg-gray-200 rounded-lg">Annuler</button>
+              <button onClick={handleChangePassword} disabled={isChangingPassword} className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg">{isChangingPassword ? '...' : 'OK'}</button>
             </div>
           </div>
         </div>
       )}
 
-      <header className="bg-white border-b border-gray-200 sticky top-0 z-50 shadow-sm">
-        <div className="max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
-          <h1 className="text-2xl font-bold text-blue-600">SKROLL.TV</h1>
-          <div className="flex items-center gap-4">
-            {toValidateCount > 0 && <span className="bg-red-500 text-white text-xs px-2 py-1 rounded-full">{toValidateCount} à valider</span>}
-            {allValidatedVideos.length > 0 && <span className="bg-green-500 text-white text-xs px-2 py-1 rounded-full">{allValidatedVideos.length} validée{allValidatedVideos.length > 1 ? 's' : ''}</span>}
-            <span className="text-gray-700 font-medium">{currentUser}</span>
-            <button onClick={() => setShowPasswordModal(true)} className="px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm">🔐</button>
-            <button onClick={handleLogout} className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-medium">Déconnexion</button>
+      {/* Mobile menu overlay */}
+      {mobileMenuOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-40 md:hidden" onClick={() => setMobileMenuOpen(false)}>
+          <div className="bg-white w-64 h-full p-4" onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-xl font-bold text-blue-600">SKROLL.TV</h2>
+              <button onClick={() => setMobileMenuOpen(false)} className="text-2xl">✕</button>
+            </div>
+            <ul className="space-y-2">
+              {[
+                {id:'videos', icon:'🎬', label:'Vidéos'},
+                {id:'comments', icon:'💬', label:`Commentaires (${allComments.length})`},
+                {id:'validated', icon:'✅', label:`Validées (${allValidatedVideos.length})`},
+                {id:'tasks', icon:'📋', label:'Tâches'},
+                {id:'ideas', icon:'💡', label:'Idées'},
+                {id:'contacts', icon:'👥', label:'Contacts'},
+                {id:'files', icon:'📁', label:'Fichiers'}
+              ].map((item) => (
+                <li key={item.id}>
+                  <button onClick={() => { setCurrentSection(item.id); setMobileMenuOpen(false) }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg ${currentSection === item.id ? 'bg-blue-50 text-blue-600' : 'text-gray-700'}`}>
+                    <span>{item.icon}</span>
+                    <span>{item.label}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <div className="mt-6 pt-6 border-t">
+              <p className="text-gray-600 mb-2">{currentUser}</p>
+              <button onClick={() => setShowPasswordModal(true)} className="text-sm text-gray-500 mr-4">🔐 Mot de passe</button>
+              <button onClick={handleLogout} className="text-sm text-red-500">Déconnexion</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Header */}
+      <header className="bg-white border-b sticky top-0 z-30 shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 md:px-6 py-3 md:py-4 flex justify-between items-center">
+          <div className="flex items-center gap-3">
+            <button onClick={() => setMobileMenuOpen(true)} className="md:hidden text-2xl">☰</button>
+            <h1 className="text-xl md:text-2xl font-bold text-blue-600">SKROLL.TV</h1>
+          </div>
+          <div className="flex items-center gap-2 md:gap-4">
+            {toValidateCount > 0 && <span className="bg-red-500 text-white text-xs px-2 py-1 rounded-full">{toValidateCount}</span>}
+            <span className="hidden md:inline text-gray-700">{currentUser}</span>
+            <button onClick={() => setShowPasswordModal(true)} className="hidden md:block px-3 py-2 bg-gray-100 rounded-lg text-sm">🔐</button>
+            <button onClick={handleLogout} className="hidden md:block px-4 py-2 bg-gray-100 rounded-lg text-sm">Déconnexion</button>
           </div>
         </div>
       </header>
 
       <div className="flex">
-        <nav className="w-64 bg-white border-r border-gray-200 fixed left-0 top-[73px] bottom-0 overflow-y-auto">
+        {/* Desktop sidebar */}
+        <nav className="hidden md:block w-64 bg-white border-r fixed left-0 top-[65px] bottom-0 overflow-y-auto">
           <ul className="p-4 space-y-2">
             {[
               {id:'videos', icon:'🎬', label:'Vidéos'},
@@ -507,7 +643,7 @@ export default function Home() {
               {id:'files', icon:'📁', label:'Fichiers'}
             ].map((item) => (
               <li key={item.id}>
-                <button onClick={() => setCurrentSection(item.id)} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg font-medium transition-all ${currentSection === item.id ? 'bg-blue-50 text-blue-600' : 'text-gray-700 hover:bg-gray-50'}`}>
+                <button onClick={() => setCurrentSection(item.id)} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg font-medium ${currentSection === item.id ? 'bg-blue-50 text-blue-600' : 'text-gray-700 hover:bg-gray-50'}`}>
                   <span className="text-xl">{item.icon}</span>
                   <span>{item.label}</span>
                 </button>
@@ -516,158 +652,77 @@ export default function Home() {
           </ul>
         </nav>
 
-        <main className="ml-64 p-8 w-full">
+        {/* Main content */}
+        <main className="md:ml-64 p-4 md:p-8 w-full">
           {currentSection === 'videos' && (
             <div>
-              <div className="mb-6 flex justify-between items-start">
+              <div className="mb-4 md:mb-6 flex flex-col md:flex-row justify-between items-start gap-4">
                 <div>
-                  <h2 className="text-3xl font-bold text-gray-900 mb-2">Vidéos</h2>
-                  <p className="text-gray-600">{videos.length} vidéos • {filteredVideos.length} affichées</p>
+                  <h2 className="text-2xl md:text-3xl font-bold text-gray-900 mb-1">{filteredVideos.length} vidéos</h2>
                 </div>
-                <div className="flex gap-2">
-                  <button onClick={() => setViewMode('grid')} className={`px-3 py-2 rounded ${viewMode === 'grid' ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}>Grille</button>
-                  <button onClick={() => setViewMode('table')} className={`px-3 py-2 rounded ${viewMode === 'table' ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}>Tableau</button>
-                </div>
+                
+                {/* Mobile: toggle swipe/grid */}
+                {isMobile && (
+                  <div className="flex gap-2 w-full">
+                    <button onClick={() => setMobileViewMode('swipe')} className={`flex-1 py-2 rounded-lg text-sm ${mobileViewMode === 'swipe' ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}>📱 Swipe</button>
+                    <button onClick={() => setMobileViewMode('grid')} className={`flex-1 py-2 rounded-lg text-sm ${mobileViewMode === 'grid' ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}>⊞ Grille</button>
+                  </div>
+                )}
+                
+                {/* Desktop: grid/table toggle */}
+                {!isMobile && (
+                  <div className="flex gap-2">
+                    <button onClick={() => setViewMode('grid')} className={`px-3 py-2 rounded ${viewMode === 'grid' ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}>Grille</button>
+                    <button onClick={() => setViewMode('table')} className={`px-3 py-2 rounded ${viewMode === 'table' ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}>Tableau</button>
+                  </div>
+                )}
               </div>
               
-              <div className="mb-6">
-                <div className="relative">
-                  <input type="text" placeholder="🔍 Rechercher par titre, type, auteur..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full border border-gray-300 rounded-xl px-4 py-3 pl-12 text-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-xl">🔍</span>
-                  {searchQuery && <button onClick={() => setSearchQuery('')} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">✕</button>}
-                </div>
+              {/* Search */}
+              <div className="mb-4">
+                <input type="text" placeholder="🔍 Rechercher..." value={searchQuery} onChange={(e) => { setSearchQuery(e.target.value); setCurrentVideoIndex(0) }} className="w-full border rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500" />
               </div>
               
-              <div className="mb-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <p className="text-sm text-blue-800"><strong>📹 Format optimal :</strong> MP4 H.264/H.265 • 1080p ou 720p • 8-12 Mbps • AAC 128kbps</p>
-              </div>
-              
-              <div className="mb-6 flex flex-wrap gap-4 items-center">
-                <select value={filterType} onChange={(e) => setFilterType(e.target.value)} className="border rounded-lg px-3 py-2">
-                  <option value="all">Tous les types</option>
-                  {videoTypes.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-                </select>
-                <select value={filterValidation} onChange={(e) => setFilterValidation(e.target.value)} className="border rounded-lg px-3 py-2">
-                  <option value="all">Toutes les vidéos</option>
-                  <option value="to_validate">🔴 À valider par moi</option>
+              {/* Filters */}
+              <div className="mb-4 flex flex-wrap gap-2">
+                <select value={filterValidation} onChange={(e) => { setFilterValidation(e.target.value); setCurrentVideoIndex(0) }} className="border rounded-lg px-3 py-2 text-sm">
+                  <option value="all">Toutes</option>
+                  <option value="to_validate">🔴 À valider</option>
                   <option value="validated">✅ Validées par moi</option>
-                  <option value="all_validated">✅✅✅ Validées par tous</option>
                 </select>
-                <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="border rounded-lg px-3 py-2">
-                  <option value="recent">📅 Plus récentes</option>
+                <select value={sortBy} onChange={(e) => { setSortBy(e.target.value); setCurrentVideoIndex(0) }} className="border rounded-lg px-3 py-2 text-sm">
+                  <option value="recent">📅 Récentes</option>
                   <option value="recent_comments">💬 Commentaires récents</option>
                   <option value="most_comments">🔥 Plus commentées</option>
                 </select>
-                <div className="flex gap-2 items-center ml-auto">
-                  <input type="text" placeholder="Nouveau type..." value={newTypeName} onChange={(e) => setNewTypeName(e.target.value)} className="border rounded-lg px-3 py-2 text-sm" />
-                  <button onClick={addVideoType} className="bg-green-600 text-white px-3 py-2 rounded-lg text-sm">+ Ajouter</button>
-                </div>
               </div>
               
-              <div className="mb-6 flex flex-wrap gap-2">
-                {videoTypes.map(t => (
-                  <span key={t.id} className="inline-flex items-center gap-1 bg-gray-100 px-3 py-1 rounded-full text-sm">
-                    {t.name}<button onClick={() => deleteVideoType(t.id)} className="text-red-500 hover:text-red-700 ml-1">×</button>
-                  </span>
-                ))}
-              </div>
+              {/* Mobile swipe view */}
+              {isMobile && mobileViewMode === 'swipe' && renderMobileSwipeView()}
               
-              {selectedVideos.size > 0 && (
-                <div className="mb-6 bg-blue-100 border border-blue-300 rounded-lg p-4 flex items-center justify-between">
-                  <span className="font-medium text-blue-800">{selectedVideos.size} vidéo{selectedVideos.size > 1 ? 's' : ''} sélectionnée{selectedVideos.size > 1 ? 's' : ''}</span>
-                  <div className="flex gap-2">
-                    <button onClick={() => setSelectedVideos(new Set())} className="px-3 py-1 bg-white text-gray-700 rounded-lg text-sm">Désélectionner</button>
-                    <button onClick={downloadSelectedVideos} className="px-3 py-1 bg-blue-600 text-white rounded-lg text-sm">⬇ Télécharger</button>
-                  </div>
-                </div>
-              )}
-              
-              <label className="block mb-8 cursor-pointer">
-                <div className="border-2 border-dashed border-gray-300 hover:border-blue-500 rounded-xl p-8 text-center bg-white transition-colors">
-                  <input type="file" accept="video/*" multiple onChange={handleVideoUpload} disabled={uploading} className="hidden" />
-                  <div className="text-4xl mb-2">📤</div>
-                  <div className="text-lg font-medium text-gray-700">{uploading ? uploadStatus : 'Cliquez pour uploader'}</div>
-                  <div className="text-sm text-gray-500">MP4, MOV - Sélection multiple</div>
-                  {uploading && <div className="mt-4 max-w-md mx-auto"><div className="w-full bg-gray-200 rounded-full h-3"><div className="bg-blue-600 h-3 rounded-full" style={{width:`${uploadProgress}%`}}></div></div></div>}
-                </div>
-              </label>
-              
-              {filteredVideos.length > 0 && (
-                <div className="mb-4 flex items-center gap-2">
-                  <input type="checkbox" checked={selectedVideos.size === filteredVideos.length} onChange={selectAllVideos} className="w-5 h-5 rounded" />
-                  <span className="text-sm text-gray-600">Tout sélectionner</span>
-                </div>
-              )}
-              
-              {viewMode === 'grid' && (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {/* Grid view (mobile grid or desktop) */}
+              {((isMobile && mobileViewMode === 'grid') || (!isMobile && viewMode === 'grid')) && (
+                <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-6">
                   {filteredVideos.map((video) => {
                     const myField = userToColumn[currentUser]
                     const myApproval = video[myField]
                     const allApproved = video.bertrand_approved && video.sebastien_approved && video.pierreemmanuel_approved
                     const commentCount = commentCounts[video.id] || 0
-                    const audioCount = audioCounts[video.id] || 0
-                    const isExpanded = expandedComments === video.id
-                    const comments = videoComments[video.id] || []
                     
                     return (
-                      <div key={video.id} className={`bg-white rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-shadow ${selectedVideos.has(video.id) ? 'ring-2 ring-blue-500' : ''} ${allApproved ? 'ring-2 ring-green-500' : ''}`}>
-                        <div className="relative">
-                          <div className="absolute top-2 left-2 z-10">
-                            <input type="checkbox" checked={selectedVideos.has(video.id)} onChange={() => toggleVideoSelection(video.id)} className="w-5 h-5 rounded bg-white/80" />
-                          </div>
-                          {allApproved && <div className="absolute top-2 right-2 z-10 bg-green-500 text-white text-xs px-2 py-1 rounded-full">✅</div>}
-                          <div className="cursor-pointer" onClick={() => router.push(`/video/${video.id}`)}>
-                            <video src={video.file_url} preload="metadata" className="w-full aspect-video bg-gray-900" muted />
-                          </div>
+                      <div key={video.id} className={`bg-white rounded-xl overflow-hidden shadow-sm ${allApproved ? 'ring-2 ring-green-500' : ''}`}>
+                        <div className="relative cursor-pointer" onClick={() => router.push(`/video/${video.id}`)}>
+                          {allApproved && <div className="absolute top-1 right-1 z-10 bg-green-500 text-white text-xs px-1.5 py-0.5 rounded-full">✅</div>}
+                          <video src={video.file_url} preload="metadata" className="w-full aspect-video bg-gray-900" muted />
                         </div>
-                        
-                        <div className="p-4">
-                          <h3 className="font-semibold text-gray-900 mb-2">{video.title}</h3>
-                          
-                          <div className="flex flex-wrap gap-2 mb-3">
-                            {video.video_types?.name && <span className="text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded">{video.video_types.name}</span>}
-                            <button onClick={() => toggleComments(video.id)} className={`text-xs px-2 py-1 rounded transition-colors ${commentCount > 0 ? 'bg-yellow-100 text-yellow-800' : 'bg-gray-100 text-gray-600'}`}>
-                              💬 {commentCount > 0 ? commentCount : 'Commenter'}
-                            </button>
-                            {audioCount > 0 && <span className="text-xs bg-purple-100 text-purple-800 px-2 py-1 rounded">🎵 {audioCount}</span>}
+                        <div className="p-2 md:p-4">
+                          <h3 className="font-semibold text-sm md:text-base truncate mb-2">{video.title}</h3>
+                          <div className="flex gap-1 mb-2">
+                            {commentCount > 0 && <span className="text-xs bg-yellow-100 text-yellow-800 px-1.5 py-0.5 rounded">💬{commentCount}</span>}
                           </div>
-                          
-                          <button onClick={() => toggleMyApproval(video.id)} className={`w-full mb-3 px-4 py-2 rounded-lg text-sm font-medium ${myApproval ? 'bg-green-100 text-green-800 ring-2 ring-green-500' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
-                            {myApproval ? '✓ Validée par moi' : '○ Valider'}
+                          <button onClick={() => toggleMyApproval(video.id)} className={`w-full py-2 rounded-lg text-xs font-medium ${myApproval ? 'bg-green-500 text-white' : 'bg-gray-100'}`}>
+                            {myApproval ? '✓ Validée' : 'Valider'}
                           </button>
-                          
-                          <div className="flex gap-2 mb-3">
-                            <span className={`text-xs px-2 py-1 rounded-full ${video.bertrand_approved ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-400'}`}>B{video.bertrand_approved ? '✓' : ''}</span>
-                            <span className={`text-xs px-2 py-1 rounded-full ${video.sebastien_approved ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-400'}`}>S{video.sebastien_approved ? '✓' : ''}</span>
-                            <span className={`text-xs px-2 py-1 rounded-full ${video.pierreemmanuel_approved ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-400'}`}>P{video.pierreemmanuel_approved ? '✓' : ''}</span>
-                          </div>
-                          
-                          {isExpanded && (
-                            <div className="border-t pt-3 mt-3">
-                              {comments.length > 0 && (
-                                <div className="space-y-2 mb-3 max-h-40 overflow-y-auto">
-                                  {comments.map(c => (
-                                    <div key={c.id} className="bg-gray-50 rounded p-2 text-sm">
-                                      <span className="font-medium">{c.user_id}</span>
-                                      <span className="text-gray-400 text-xs ml-2">{formatDate(c.created_at)}</span>
-                                      <p className="text-gray-600">{c.text}</p>
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-                              <div className="flex gap-2">
-                                <input type="text" value={newComment} onChange={(e) => setNewComment(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && addQuickComment(video.id)} placeholder="Commenter..." className="flex-1 text-sm border rounded-lg px-3 py-2" />
-                                <button onClick={() => addQuickComment(video.id)} className="bg-blue-600 text-white px-3 py-2 rounded-lg">↑</button>
-                              </div>
-                            </div>
-                          )}
-                          
-                          <div className="flex gap-2 text-xs mt-3 pt-3 border-t">
-                            <button onClick={() => router.push(`/video/${video.id}`)} className="text-blue-600 hover:underline">📝 Détails</button>
-                            <a href={video.file_url} download className="text-green-600 hover:underline">⬇ DL</a>
-                            <button onClick={() => deleteVideo(video.id)} className="text-red-600 hover:underline ml-auto">🗑</button>
-                          </div>
                         </div>
                       </div>
                     )
@@ -675,18 +730,17 @@ export default function Home() {
                 </div>
               )}
               
-              {viewMode === 'table' && (
+              {/* Desktop table view */}
+              {!isMobile && viewMode === 'table' && (
                 <div className="bg-white rounded-xl shadow overflow-x-auto">
                   <table className="w-full">
                     <thead className="bg-gray-50">
                       <tr>
-                        <th className="px-4 py-3 text-left w-10"><input type="checkbox" checked={selectedVideos.size === filteredVideos.length} onChange={selectAllVideos} /></th>
-                        <th className="px-4 py-3 text-left text-sm font-medium">Titre</th>
-                        <th className="px-4 py-3 text-left text-sm font-medium">Type</th>
-                        <th className="px-4 py-3 text-left text-sm font-medium">💬</th>
-                        <th className="px-4 py-3 text-left text-sm font-medium">Validations</th>
-                        <th className="px-4 py-3 text-left text-sm font-medium">Ma validation</th>
-                        <th className="px-4 py-3 text-left text-sm font-medium">Actions</th>
+                        <th className="px-4 py-3 text-left text-sm">Titre</th>
+                        <th className="px-4 py-3 text-left text-sm">💬</th>
+                        <th className="px-4 py-3 text-left text-sm">Validations</th>
+                        <th className="px-4 py-3 text-left text-sm">Ma validation</th>
+                        <th className="px-4 py-3 text-left text-sm">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y">
@@ -694,10 +748,8 @@ export default function Home() {
                         const myField = userToColumn[currentUser]
                         const myApproval = video[myField]
                         return (
-                          <tr key={video.id} className={`hover:bg-gray-50 ${selectedVideos.has(video.id) ? 'bg-blue-50' : ''}`}>
-                            <td className="px-4 py-3"><input type="checkbox" checked={selectedVideos.has(video.id)} onChange={() => toggleVideoSelection(video.id)} /></td>
-                            <td className="px-4 py-3 text-sm"><button onClick={() => router.push(`/video/${video.id}`)} className="text-blue-600 hover:underline">{video.title}</button></td>
-                            <td className="px-4 py-3 text-sm">{video.video_types?.name || '-'}</td>
+                          <tr key={video.id} className="hover:bg-gray-50">
+                            <td className="px-4 py-3"><button onClick={() => router.push(`/video/${video.id}`)} className="text-blue-600 hover:underline">{video.title}</button></td>
                             <td className="px-4 py-3 text-sm">{commentCounts[video.id] || 0}</td>
                             <td className="px-4 py-3 text-sm">
                               <span className={video.bertrand_approved ? 'text-green-600' : 'text-gray-400'}>B </span>
@@ -705,14 +757,11 @@ export default function Home() {
                               <span className={video.pierreemmanuel_approved ? 'text-green-600' : 'text-gray-400'}>P</span>
                             </td>
                             <td className="px-4 py-3">
-                              <button onClick={() => toggleMyApproval(video.id)} className={`px-3 py-1 rounded text-xs ${myApproval ? 'bg-green-100 text-green-800' : 'bg-gray-100'}`}>
-                                {myApproval ? '✓' : 'Valider'}
-                              </button>
+                              <button onClick={() => toggleMyApproval(video.id)} className={`px-3 py-1 rounded text-xs ${myApproval ? 'bg-green-100 text-green-800' : 'bg-gray-100'}`}>{myApproval ? '✓' : 'Valider'}</button>
                             </td>
-                            <td className="px-4 py-3 text-sm space-x-2">
-                              <button onClick={() => router.push(`/video/${video.id}`)} className="text-blue-600">Ouvrir</button>
+                            <td className="px-4 py-3 text-sm">
+                              <button onClick={() => router.push(`/video/${video.id}`)} className="text-blue-600 mr-2">Ouvrir</button>
                               <a href={video.file_url} download className="text-green-600">DL</a>
-                              <button onClick={() => deleteVideo(video.id)} className="text-red-600">Suppr</button>
                             </td>
                           </tr>
                         )
@@ -721,61 +770,33 @@ export default function Home() {
                   </table>
                 </div>
               )}
-              
-              {filteredVideos.length === 0 && <div className="text-center py-12 text-gray-500">{searchQuery ? `Aucun résultat pour "${searchQuery}"` : 'Aucune vidéo'}</div>}
             </div>
           )}
 
           {currentSection === 'comments' && (
             <div>
-              <h2 className="text-3xl font-bold text-gray-900 mb-2">Commentaires</h2>
-              <p className="text-gray-600 mb-6">{allComments.length} commentaire{allComments.length > 1 ? 's' : ''}</p>
-              
+              <h2 className="text-2xl md:text-3xl font-bold text-gray-900 mb-4">{allComments.length} commentaires</h2>
               {allComments.length === 0 ? (
                 <div className="text-center py-12 text-gray-500">Aucun commentaire</div>
               ) : (
-                <div className="space-y-4">
+                <div className="space-y-3">
                   {allComments.map(comment => (
                     <div key={comment.id} className="bg-white rounded-xl p-4 shadow-sm">
-                      <div className="flex items-start gap-4">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="font-semibold text-gray-900">{comment.user_id}</span>
-                            <span className="text-gray-400 text-sm">•</span>
-                            <span className="text-gray-500 text-sm">{formatDate(comment.created_at)}</span>
-                          </div>
-                          <p className="text-gray-700 mb-2">{comment.text}</p>
-                          <button 
-                            onClick={() => router.push(`/video/${comment.video_id}`)}
-                            className="text-sm text-blue-600 hover:underline flex items-center gap-1"
-                          >
-                            🎬 {comment.videos?.title || 'Voir la vidéo'}
-                          </button>
-                          
-                          {replyTo === comment.id ? (
-                            <div className="mt-3 flex gap-2">
-                              <input
-                                type="text"
-                                value={replyText}
-                                onChange={(e) => setReplyText(e.target.value)}
-                                onKeyPress={(e) => e.key === 'Enter' && addReply(comment.video_id)}
-                                placeholder="Votre réponse..."
-                                className="flex-1 border rounded-lg px-3 py-2 text-sm"
-                                autoFocus
-                              />
-                              <button onClick={() => addReply(comment.video_id)} className="bg-blue-600 text-white px-3 py-2 rounded-lg text-sm">Répondre</button>
-                              <button onClick={() => { setReplyTo(null); setReplyText('') }} className="text-gray-500 px-3 py-2">Annuler</button>
-                            </div>
-                          ) : (
-                            <button 
-                              onClick={() => setReplyTo(comment.id)}
-                              className="mt-2 text-sm text-gray-500 hover:text-gray-700"
-                            >
-                              ↩ Répondre
-                            </button>
-                          )}
-                        </div>
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="font-semibold">{comment.user_id}</span>
+                        <span className="text-gray-400 text-sm">{formatDate(comment.created_at)}</span>
                       </div>
+                      <p className="text-gray-700 mb-2">{comment.text}</p>
+                      <button onClick={() => router.push(`/video/${comment.video_id}`)} className="text-sm text-blue-600">🎬 {comment.videos?.title}</button>
+                      {replyTo === comment.id ? (
+                        <div className="mt-3 flex gap-2">
+                          <input type="text" value={replyText} onChange={(e) => setReplyText(e.target.value)} placeholder="Répondre..." className="flex-1 border rounded-lg px-3 py-2 text-sm" autoFocus />
+                          <button onClick={() => addReply(comment.video_id)} className="bg-blue-600 text-white px-3 py-2 rounded-lg text-sm">OK</button>
+                          <button onClick={() => setReplyTo(null)} className="text-gray-500 px-2">✕</button>
+                        </div>
+                      ) : (
+                        <button onClick={() => setReplyTo(comment.id)} className="block mt-2 text-sm text-gray-500">↩ Répondre</button>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -785,86 +806,65 @@ export default function Home() {
 
           {currentSection === 'validated' && (
             <div>
-              <h2 className="text-3xl font-bold text-gray-900 mb-2">Vidéos validées</h2>
-              <p className="text-gray-600 mb-6">Prêtes pour export</p>
+              <h2 className="text-2xl md:text-3xl font-bold text-gray-900 mb-4">{allValidatedVideos.length} validées</h2>
               {allValidatedVideos.length === 0 ? (
                 <div className="text-center py-12 text-gray-500">Aucune vidéo validée par tous</div>
               ) : (
-                <>
-                  <button onClick={async () => { for (const v of allValidatedVideos) { const a = document.createElement('a'); a.href = v.file_url; a.download = `${v.title}.mp4`; a.click(); await new Promise(r => setTimeout(r, 500)) }}} className="mb-6 bg-green-600 text-white px-4 py-2 rounded-lg">⬇ Tout télécharger</button>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {allValidatedVideos.map((video) => (
-                      <div key={video.id} className="bg-white rounded-xl overflow-hidden shadow-sm border-2 border-green-500 cursor-pointer" onClick={() => router.push(`/video/${video.id}`)}>
-                        <div className="bg-green-500 text-white text-center py-1 text-sm">✅ Validée</div>
-                        <video src={video.file_url} preload="metadata" className="w-full aspect-video bg-gray-900" muted />
-                        <div className="p-4">
-                          <h3 className="font-semibold">{video.title}</h3>
-                          <p className="text-sm text-gray-500">{video.video_types?.name || 'Sans type'}</p>
-                        </div>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-3 md:gap-6">
+                  {allValidatedVideos.map((video) => (
+                    <div key={video.id} className="bg-white rounded-xl overflow-hidden shadow-sm border-2 border-green-500 cursor-pointer" onClick={() => router.push(`/video/${video.id}`)}>
+                      <div className="bg-green-500 text-white text-center py-1 text-xs">✅ Validée</div>
+                      <video src={video.file_url} preload="metadata" className="w-full aspect-video bg-gray-900" muted />
+                      <div className="p-2 md:p-4">
+                        <h3 className="font-semibold text-sm md:text-base truncate">{video.title}</h3>
                       </div>
-                    ))}
-                  </div>
-                </>
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
           )}
 
           {currentSection === 'tasks' && (
             <div>
-              <h2 className="text-3xl font-bold text-gray-900 mb-6">Tâches</h2>
-              <div className="bg-white rounded-xl p-6 shadow-sm mb-8">
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                  <input type="text" placeholder="Nom" value={newTask.name} onChange={(e) => setNewTask({...newTask, name: e.target.value})} className="border rounded-lg px-3 py-2" />
-                  <select value={newTask.folder_name} onChange={(e) => setNewTask({...newTask, folder_name: e.target.value})} className="border rounded-lg px-3 py-2">{taskFolders.map(f => <option key={f}>{f}</option>)}</select>
-                  <select value={newTask.assignee} onChange={(e) => setNewTask({...newTask, assignee: e.target.value})} className="border rounded-lg px-3 py-2"><option value="">Assigné à...</option><option>Bertrand</option><option>Sébastien</option><option>Pierre Emmanuel</option></select>
-                  <input type="date" value={newTask.deadline} onChange={(e) => setNewTask({...newTask, deadline: e.target.value})} className="border rounded-lg px-3 py-2" />
+              <h2 className="text-2xl md:text-3xl font-bold text-gray-900 mb-4">Tâches</h2>
+              <div className="bg-white rounded-xl p-4 shadow-sm mb-6">
+                <input type="text" placeholder="Nouvelle tâche..." value={newTask.name} onChange={(e) => setNewTask({...newTask, name: e.target.value})} className="w-full border rounded-lg px-3 py-2 mb-2" />
+                <div className="flex gap-2 mb-2">
+                  <select value={newTask.assignee} onChange={(e) => setNewTask({...newTask, assignee: e.target.value})} className="flex-1 border rounded-lg px-3 py-2 text-sm"><option value="">Assigné à...</option><option>Bertrand</option><option>Sébastien</option><option>Pierre Emmanuel</option></select>
+                  <button onClick={createTask} className="bg-blue-600 text-white px-4 py-2 rounded-lg">+</button>
                 </div>
-                <textarea placeholder="Description..." value={newTask.description} onChange={(e) => setNewTask({...newTask, description: e.target.value})} className="w-full border rounded-lg px-3 py-2 mt-4" rows={2} />
-                <button onClick={createTask} className="mt-4 bg-blue-600 text-white px-6 py-2 rounded-lg">Créer</button>
               </div>
-              {taskFolders.map(folder => { 
-                const folderTasks = tasks.filter(t => t.folder_name === folder)
-                if (folderTasks.length === 0) return null
-                return (
-                  <div key={folder} className="mb-8">
-                    <h3 className="font-semibold text-lg mb-4">{folder}</h3>
-                    <div className="space-y-3">
-                      {folderTasks.map(task => (
-                        <div key={task.id} className="bg-white rounded-lg p-4 shadow-sm flex items-center gap-4">
-                          <select value={task.status} onChange={(e) => updateTaskStatus(task.id, e.target.value)} className={`text-xs px-2 py-1 rounded ${task.status === 'Terminée' ? 'bg-green-100 text-green-800' : task.status === 'En cours' ? 'bg-yellow-100 text-yellow-800' : 'bg-gray-100'}`}>
-                            <option>À faire</option><option>En cours</option><option>Terminée</option>
-                          </select>
-                          <div className="flex-1"><p className="font-medium">{task.name}</p>{task.description && <p className="text-sm text-gray-500">{task.description}</p>}</div>
-                          {task.assignee && <span className="text-sm text-gray-600">{task.assignee}</span>}
-                          {task.deadline && <span className="text-sm text-gray-500">{task.deadline}</span>}
-                          <button onClick={() => deleteTask(task.id)} className="text-red-500">🗑</button>
-                        </div>
-                      ))}
-                    </div>
+              <div className="space-y-2">
+                {tasks.map(task => (
+                  <div key={task.id} className="bg-white rounded-lg p-3 shadow-sm flex items-center gap-3">
+                    <select value={task.status} onChange={(e) => updateTaskStatus(task.id, e.target.value)} className={`text-xs px-2 py-1 rounded ${task.status === 'Terminée' ? 'bg-green-100' : task.status === 'En cours' ? 'bg-yellow-100' : 'bg-gray-100'}`}>
+                      <option>À faire</option><option>En cours</option><option>Terminée</option>
+                    </select>
+                    <div className="flex-1"><p className="font-medium text-sm">{task.name}</p></div>
+                    {task.assignee && <span className="text-xs text-gray-500">{task.assignee}</span>}
+                    <button onClick={() => deleteTask(task.id)} className="text-red-500">🗑</button>
                   </div>
-                )
-              })}
+                ))}
+              </div>
             </div>
           )}
 
           {currentSection === 'ideas' && (
             <div>
-              <h2 className="text-3xl font-bold text-gray-900 mb-6">Idées</h2>
-              <div className="bg-white rounded-xl p-6 shadow-sm mb-8">
-                <input type="text" placeholder="Titre" value={newIdea.title} onChange={(e) => setNewIdea({...newIdea, title: e.target.value})} className="w-full border rounded-lg px-3 py-2 mb-4" />
-                <textarea placeholder="Description..." value={newIdea.description} onChange={(e) => setNewIdea({...newIdea, description: e.target.value})} className="w-full border rounded-lg px-3 py-2 mb-4" rows={3} />
-                <input type="text" placeholder="Tags (virgules)" value={newIdea.tags} onChange={(e) => setNewIdea({...newIdea, tags: e.target.value})} className="w-full border rounded-lg px-3 py-2 mb-4" />
-                <button onClick={createIdea} className="bg-blue-600 text-white px-6 py-2 rounded-lg">Ajouter</button>
+              <h2 className="text-2xl md:text-3xl font-bold text-gray-900 mb-4">Idées</h2>
+              <div className="bg-white rounded-xl p-4 shadow-sm mb-6">
+                <input type="text" placeholder="Nouvelle idée..." value={newIdea.title} onChange={(e) => setNewIdea({...newIdea, title: e.target.value})} className="w-full border rounded-lg px-3 py-2 mb-2" />
+                <button onClick={createIdea} className="bg-blue-600 text-white px-4 py-2 rounded-lg">Ajouter</button>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {ideas.map(idea => (
-                  <div key={idea.id} className="bg-white rounded-xl p-6 shadow-sm">
-                    <h3 className="font-semibold text-lg mb-2">{idea.title}</h3>
-                    <p className="text-gray-600 text-sm mb-4">{idea.description}</p>
-                    {idea.tags && <div className="flex flex-wrap gap-2 mb-4">{idea.tags.map((tag, i) => <span key={i} className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded">{tag}</span>)}</div>}
+                  <div key={idea.id} className="bg-white rounded-xl p-4 shadow-sm">
+                    <h3 className="font-semibold mb-2">{idea.title}</h3>
+                    <p className="text-gray-600 text-sm mb-3">{idea.description}</p>
                     <div className="flex justify-between">
                       <select value={idea.status} onChange={(e) => updateIdea({...idea, status: e.target.value})} className="text-xs border rounded px-2 py-1"><option>Nouvelle</option><option>En réflexion</option><option>Validée</option><option>Rejetée</option></select>
-                      <button onClick={() => deleteIdea(idea.id)} className="text-red-500 text-sm">Supprimer</button>
+                      <button onClick={() => deleteIdea(idea.id)} className="text-red-500 text-sm">Suppr</button>
                     </div>
                   </div>
                 ))}
@@ -874,56 +874,46 @@ export default function Home() {
 
           {currentSection === 'contacts' && (
             <div>
-              <h2 className="text-3xl font-bold text-gray-900 mb-6">Contacts</h2>
-              <div className="bg-white rounded-xl p-6 shadow-sm mb-8">
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                  <input type="text" placeholder="Nom" value={newContact.name} onChange={(e) => setNewContact({...newContact, name: e.target.value})} className="border rounded-lg px-3 py-2" />
-                  <select value={newContact.type} onChange={(e) => setNewContact({...newContact, type: e.target.value})} className="border rounded-lg px-3 py-2">{contactTypes.map(t => <option key={t}>{t}</option>)}</select>
-                  <input type="text" placeholder="Email/Tel" value={newContact.contact} onChange={(e) => setNewContact({...newContact, contact: e.target.value})} className="border rounded-lg px-3 py-2" />
-                  <select value={newContact.status} onChange={(e) => setNewContact({...newContact, status: e.target.value})} className="border rounded-lg px-3 py-2">{contactStatuses.map(s => <option key={s}>{s}</option>)}</select>
-                </div>
-                <textarea placeholder="Notes..." value={newContact.notes} onChange={(e) => setNewContact({...newContact, notes: e.target.value})} className="w-full border rounded-lg px-3 py-2 mt-4" rows={2} />
-                <button onClick={createContact} className="mt-4 bg-blue-600 text-white px-6 py-2 rounded-lg">Ajouter</button>
+              <h2 className="text-2xl md:text-3xl font-bold text-gray-900 mb-4">Contacts</h2>
+              <div className="bg-white rounded-xl p-4 shadow-sm mb-6">
+                <input type="text" placeholder="Nom..." value={newContact.name} onChange={(e) => setNewContact({...newContact, name: e.target.value})} className="w-full border rounded-lg px-3 py-2 mb-2" />
+                <input type="text" placeholder="Email/Tel..." value={newContact.contact} onChange={(e) => setNewContact({...newContact, contact: e.target.value})} className="w-full border rounded-lg px-3 py-2 mb-2" />
+                <button onClick={createContact} className="bg-blue-600 text-white px-4 py-2 rounded-lg">Ajouter</button>
               </div>
-              <div className="bg-white rounded-xl shadow overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-gray-50"><tr><th className="px-4 py-3 text-left text-sm">Nom</th><th className="px-4 py-3 text-left text-sm">Type</th><th className="px-4 py-3 text-left text-sm">Contact</th><th className="px-4 py-3 text-left text-sm">Statut</th><th className="px-4 py-3 text-left text-sm">Notes</th><th className="px-4 py-3 text-left text-sm">Actions</th></tr></thead>
-                  <tbody className="divide-y">
-                    {contacts.map(c => (
-                      <tr key={c.id} className="hover:bg-gray-50">
-                        <td className="px-4 py-3 text-sm font-medium">{c.name}</td>
-                        <td className="px-4 py-3 text-sm">{c.type}</td>
-                        <td className="px-4 py-3 text-sm">{c.contact}</td>
-                        <td className="px-4 py-3"><select value={c.status} onChange={(e) => updateContact({...c, status: e.target.value})} className="text-xs border rounded px-2 py-1">{contactStatuses.map(s => <option key={s}>{s}</option>)}</select></td>
-                        <td className="px-4 py-3 text-sm text-gray-500">{c.notes}</td>
-                        <td className="px-4 py-3"><button onClick={() => deleteContact(c.id)} className="text-red-600 text-sm">Supprimer</button></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="space-y-2">
+                {contacts.map(c => (
+                  <div key={c.id} className="bg-white rounded-lg p-3 shadow-sm">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <p className="font-medium">{c.name}</p>
+                        <p className="text-sm text-gray-500">{c.contact}</p>
+                      </div>
+                      <select value={c.status} onChange={(e) => updateContact({...c, status: e.target.value})} className="text-xs border rounded px-2 py-1">{contactStatuses.map(s => <option key={s}>{s}</option>)}</select>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           )}
 
           {currentSection === 'files' && (
             <div>
-              <h2 className="text-3xl font-bold text-gray-900 mb-6">Fichiers</h2>
-              <label className="block mb-8 cursor-pointer">
-                <div className="border-2 border-dashed border-gray-300 hover:border-blue-500 rounded-xl p-8 text-center bg-white">
+              <h2 className="text-2xl md:text-3xl font-bold text-gray-900 mb-4">Fichiers</h2>
+              <label className="block mb-6">
+                <div className="border-2 border-dashed border-gray-300 rounded-xl p-6 text-center bg-white cursor-pointer">
                   <input type="file" onChange={handleFileUpload} disabled={uploadingFile} className="hidden" />
-                  <div className="text-4xl mb-2">📎</div>
-                  <div className="text-lg font-medium">{uploadingFile ? 'Upload...' : 'Uploader'}</div>
+                  <div className="text-3xl mb-2">📎</div>
+                  <div className="font-medium">{uploadingFile ? 'Upload...' : 'Uploader'}</div>
                 </div>
               </label>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 {sharedFiles.map(f => (
-                  <div key={f.id} className="bg-white rounded-lg p-4 shadow-sm">
-                    <div className="text-3xl mb-2">{f.file_type?.includes('image') ? '🖼' : f.file_type?.includes('pdf') ? '📄' : '📎'}</div>
+                  <div key={f.id} className="bg-white rounded-lg p-3 shadow-sm">
+                    <div className="text-2xl mb-1">{f.file_type?.includes('image') ? '🖼' : '📄'}</div>
                     <p className="font-medium text-sm truncate">{f.name}</p>
-                    <p className="text-xs text-gray-500 mb-3">{f.uploaded_by}</p>
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 mt-2">
                       <a href={f.file_url} target="_blank" className="text-xs text-blue-600">Ouvrir</a>
-                      <button onClick={() => deleteFile(f.id)} className="text-xs text-red-600">Supprimer</button>
+                      <button onClick={() => deleteFile(f.id)} className="text-xs text-red-600">Suppr</button>
                     </div>
                   </div>
                 ))}

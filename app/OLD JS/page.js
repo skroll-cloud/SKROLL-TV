@@ -37,6 +37,7 @@ export default function Home() {
   const [viewMode, setViewMode] = useState('grid')
   const [filterType, setFilterType] = useState('all')
   const [filterValidation, setFilterValidation] = useState('all')
+  const [sortBy, setSortBy] = useState('recent')
   const [searchQuery, setSearchQuery] = useState('')
   const [newTypeName, setNewTypeName] = useState('')
   const [selectedVideos, setSelectedVideos] = useState(new Set())
@@ -45,6 +46,10 @@ export default function Home() {
   const [expandedComments, setExpandedComments] = useState(null)
   const [videoComments, setVideoComments] = useState({})
   const [newComment, setNewComment] = useState('')
+  const [allComments, setAllComments] = useState([])
+  const [replyTo, setReplyTo] = useState(null)
+  const [replyText, setReplyText] = useState('')
+  const [latestCommentByVideo, setLatestCommentByVideo] = useState({})
   
   const [tasks, setTasks] = useState([])
   const [newTask, setNewTask] = useState({ name: '', description: '', assignee: '', deadline: '', folder_name: 'Production' })
@@ -77,6 +82,7 @@ export default function Home() {
       loadSharedFiles()
       loadCommentCounts()
       loadAudioCounts()
+      loadAllComments()
     } 
   }, [currentUser])
 
@@ -115,11 +121,16 @@ export default function Home() {
   }
   
   async function loadCommentCounts() {
-    const { data } = await supabase.from('comments').select('video_id')
+    const { data } = await supabase.from('comments').select('video_id, created_at').order('created_at', { ascending: false })
     if (data) {
       const counts = {}
-      data.forEach(c => { counts[c.video_id] = (counts[c.video_id] || 0) + 1 })
+      const latest = {}
+      data.forEach(c => { 
+        counts[c.video_id] = (counts[c.video_id] || 0) + 1
+        if (!latest[c.video_id]) latest[c.video_id] = c.created_at
+      })
       setCommentCounts(counts)
+      setLatestCommentByVideo(latest)
     }
   }
   
@@ -132,6 +143,11 @@ export default function Home() {
     }
   }
 
+  async function loadAllComments() {
+    const { data } = await supabase.from('comments').select('*, videos(title)').order('created_at', { ascending: false })
+    if (data) setAllComments(data)
+  }
+
   async function loadVideoComments(videoId) {
     const { data } = await supabase.from('comments').select('*').eq('video_id', videoId).order('created_at', { ascending: true })
     if (data) setVideoComments(prev => ({ ...prev, [videoId]: data }))
@@ -142,6 +158,16 @@ export default function Home() {
     await supabase.from('comments').insert([{ video_id: videoId, user_id: currentUser, text: newComment }])
     setNewComment('')
     loadVideoComments(videoId)
+    loadCommentCounts()
+    loadAllComments()
+  }
+
+  async function addReply(videoId) {
+    if (!replyText.trim()) return
+    await supabase.from('comments').insert([{ video_id: videoId, user_id: currentUser, text: replyText }])
+    setReplyText('')
+    setReplyTo(null)
+    loadAllComments()
     loadCommentCounts()
   }
 
@@ -354,10 +380,24 @@ export default function Home() {
     loadSharedFiles() 
   }
 
+  function formatDate(dateString) {
+    const date = new Date(dateString)
+    const now = new Date()
+    const diff = now - date
+    const minutes = Math.floor(diff / 60000)
+    const hours = Math.floor(diff / 3600000)
+    const days = Math.floor(diff / 86400000)
+    
+    if (minutes < 1) return "À l'instant"
+    if (minutes < 60) return `Il y a ${minutes}min`
+    if (hours < 24) return `Il y a ${hours}h`
+    if (days < 7) return `Il y a ${days}j`
+    return date.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })
+  }
+
   function getFilteredVideos() {
     let filtered = videos
     
-    // Recherche par texte
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase()
       filtered = filtered.filter(v => 
@@ -379,6 +419,20 @@ export default function Home() {
     else if (filterValidation === 'all_validated') {
       filtered = filtered.filter(v => v.bertrand_approved && v.sebastien_approved && v.pierreemmanuel_approved)
     }
+
+    // Tri
+    if (sortBy === 'recent') {
+      filtered.sort((a, b) => new Date(b.uploaded_at) - new Date(a.uploaded_at))
+    } else if (sortBy === 'recent_comments') {
+      filtered.sort((a, b) => {
+        const aDate = latestCommentByVideo[a.id] ? new Date(latestCommentByVideo[a.id]) : new Date(0)
+        const bDate = latestCommentByVideo[b.id] ? new Date(latestCommentByVideo[b.id]) : new Date(0)
+        return bDate - aDate
+      })
+    } else if (sortBy === 'most_comments') {
+      filtered.sort((a, b) => (commentCounts[b.id] || 0) - (commentCounts[a.id] || 0))
+    }
+
     return filtered
   }
   
@@ -445,6 +499,7 @@ export default function Home() {
           <ul className="p-4 space-y-2">
             {[
               {id:'videos', icon:'🎬', label:'Vidéos'},
+              {id:'comments', icon:'💬', label:`Commentaires (${allComments.length})`},
               {id:'validated', icon:'✅', label:`Validées (${allValidatedVideos.length})`},
               {id:'tasks', icon:'📋', label:'Tâches'},
               {id:'ideas', icon:'💡', label:'Idées'},
@@ -475,35 +530,16 @@ export default function Home() {
                 </div>
               </div>
               
-              {/* Barre de recherche */}
               <div className="mb-6">
                 <div className="relative">
-                  <input
-                    type="text"
-                    placeholder="🔍 Rechercher par titre, type, auteur..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full border border-gray-300 rounded-xl px-4 py-3 pl-12 text-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  />
+                  <input type="text" placeholder="🔍 Rechercher par titre, type, auteur..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full border border-gray-300 rounded-xl px-4 py-3 pl-12 text-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
                   <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-xl">🔍</span>
-                  {searchQuery && (
-                    <button
-                      onClick={() => setSearchQuery('')}
-                      className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                    >
-                      ✕
-                    </button>
-                  )}
+                  {searchQuery && <button onClick={() => setSearchQuery('')} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">✕</button>}
                 </div>
-                {searchQuery && (
-                  <p className="mt-2 text-sm text-gray-600">
-                    {filteredVideos.length} résultat{filteredVideos.length > 1 ? 's' : ''} pour "{searchQuery}"
-                  </p>
-                )}
               </div>
               
               <div className="mb-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <p className="text-sm text-blue-800"><strong>📹 Format optimal :</strong> MP4 H.264/H.265 • 1080p (1920×1080) ou 720p • Débit 8-12 Mbps • Audio AAC 128kbps</p>
+                <p className="text-sm text-blue-800"><strong>📹 Format optimal :</strong> MP4 H.264/H.265 • 1080p ou 720p • 8-12 Mbps • AAC 128kbps</p>
               </div>
               
               <div className="mb-6 flex flex-wrap gap-4 items-center">
@@ -516,6 +552,11 @@ export default function Home() {
                   <option value="to_validate">🔴 À valider par moi</option>
                   <option value="validated">✅ Validées par moi</option>
                   <option value="all_validated">✅✅✅ Validées par tous</option>
+                </select>
+                <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="border rounded-lg px-3 py-2">
+                  <option value="recent">📅 Plus récentes</option>
+                  <option value="recent_comments">💬 Commentaires récents</option>
+                  <option value="most_comments">🔥 Plus commentées</option>
                 </select>
                 <div className="flex gap-2 items-center ml-auto">
                   <input type="text" placeholder="Nouveau type..." value={newTypeName} onChange={(e) => setNewTypeName(e.target.value)} className="border rounded-lg px-3 py-2 text-sm" />
@@ -536,7 +577,7 @@ export default function Home() {
                   <span className="font-medium text-blue-800">{selectedVideos.size} vidéo{selectedVideos.size > 1 ? 's' : ''} sélectionnée{selectedVideos.size > 1 ? 's' : ''}</span>
                   <div className="flex gap-2">
                     <button onClick={() => setSelectedVideos(new Set())} className="px-3 py-1 bg-white text-gray-700 rounded-lg text-sm">Désélectionner</button>
-                    <button onClick={downloadSelectedVideos} className="px-3 py-1 bg-blue-600 text-white rounded-lg text-sm">⬇ Télécharger sélection</button>
+                    <button onClick={downloadSelectedVideos} className="px-3 py-1 bg-blue-600 text-white rounded-lg text-sm">⬇ Télécharger</button>
                   </div>
                 </div>
               )}
@@ -545,22 +586,15 @@ export default function Home() {
                 <div className="border-2 border-dashed border-gray-300 hover:border-blue-500 rounded-xl p-8 text-center bg-white transition-colors">
                   <input type="file" accept="video/*" multiple onChange={handleVideoUpload} disabled={uploading} className="hidden" />
                   <div className="text-4xl mb-2">📤</div>
-                  <div className="text-lg font-medium text-gray-700">{uploading ? uploadStatus : 'Cliquez pour sélectionner des vidéos'}</div>
-                  <div className="text-sm text-gray-500">MP4, MOV - Max 100 MB - Sélection multiple</div>
-                  {uploading && (
-                    <div className="mt-4 max-w-md mx-auto">
-                      <div className="w-full bg-gray-200 rounded-full h-3">
-                        <div className="bg-blue-600 h-3 rounded-full transition-all" style={{width:`${uploadProgress}%`}}></div>
-                      </div>
-                      <p className="text-sm text-gray-600 mt-2">{uploadProgress}%</p>
-                    </div>
-                  )}
+                  <div className="text-lg font-medium text-gray-700">{uploading ? uploadStatus : 'Cliquez pour uploader'}</div>
+                  <div className="text-sm text-gray-500">MP4, MOV - Sélection multiple</div>
+                  {uploading && <div className="mt-4 max-w-md mx-auto"><div className="w-full bg-gray-200 rounded-full h-3"><div className="bg-blue-600 h-3 rounded-full" style={{width:`${uploadProgress}%`}}></div></div></div>}
                 </div>
               </label>
               
               {filteredVideos.length > 0 && (
                 <div className="mb-4 flex items-center gap-2">
-                  <input type="checkbox" checked={selectedVideos.size === filteredVideos.length && filteredVideos.length > 0} onChange={selectAllVideos} className="w-5 h-5 rounded" />
+                  <input type="checkbox" checked={selectedVideos.size === filteredVideos.length} onChange={selectAllVideos} className="w-5 h-5 rounded" />
                   <span className="text-sm text-gray-600">Tout sélectionner</span>
                 </div>
               )}
@@ -582,9 +616,7 @@ export default function Home() {
                           <div className="absolute top-2 left-2 z-10">
                             <input type="checkbox" checked={selectedVideos.has(video.id)} onChange={() => toggleVideoSelection(video.id)} className="w-5 h-5 rounded bg-white/80" />
                           </div>
-                          {allApproved && (
-                            <div className="absolute top-2 right-2 z-10 bg-green-500 text-white text-xs px-2 py-1 rounded-full">✅</div>
-                          )}
+                          {allApproved && <div className="absolute top-2 right-2 z-10 bg-green-500 text-white text-xs px-2 py-1 rounded-full">✅</div>}
                           <div className="cursor-pointer" onClick={() => router.push(`/video/${video.id}`)}>
                             <video src={video.file_url} preload="metadata" className="w-full aspect-video bg-gray-900" muted />
                           </div>
@@ -594,25 +626,21 @@ export default function Home() {
                           <h3 className="font-semibold text-gray-900 mb-2">{video.title}</h3>
                           
                           <div className="flex flex-wrap gap-2 mb-3">
-                            {video.video_types?.name && (
-                              <span className="text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded">{video.video_types.name}</span>
-                            )}
-                            <button onClick={() => toggleComments(video.id)} className={`text-xs px-2 py-1 rounded transition-colors ${commentCount > 0 ? 'bg-yellow-100 text-yellow-800 hover:bg-yellow-200' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                            {video.video_types?.name && <span className="text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded">{video.video_types.name}</span>}
+                            <button onClick={() => toggleComments(video.id)} className={`text-xs px-2 py-1 rounded transition-colors ${commentCount > 0 ? 'bg-yellow-100 text-yellow-800' : 'bg-gray-100 text-gray-600'}`}>
                               💬 {commentCount > 0 ? commentCount : 'Commenter'}
                             </button>
-                            {audioCount > 0 && (
-                              <span className="text-xs bg-purple-100 text-purple-800 px-2 py-1 rounded">🎵 {audioCount}</span>
-                            )}
+                            {audioCount > 0 && <span className="text-xs bg-purple-100 text-purple-800 px-2 py-1 rounded">🎵 {audioCount}</span>}
                           </div>
                           
-                          <button onClick={() => toggleMyApproval(video.id)} className={`w-full mb-3 px-4 py-2 rounded-lg text-sm font-medium transition-all ${myApproval ? 'bg-green-100 text-green-800 ring-2 ring-green-500' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                          <button onClick={() => toggleMyApproval(video.id)} className={`w-full mb-3 px-4 py-2 rounded-lg text-sm font-medium ${myApproval ? 'bg-green-100 text-green-800 ring-2 ring-green-500' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
                             {myApproval ? '✓ Validée par moi' : '○ Valider'}
                           </button>
                           
                           <div className="flex gap-2 mb-3">
-                            <span className={`text-xs px-2 py-1 rounded-full ${video.bertrand_approved ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-400'}`}>B {video.bertrand_approved ? '✓' : ''}</span>
-                            <span className={`text-xs px-2 py-1 rounded-full ${video.sebastien_approved ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-400'}`}>S {video.sebastien_approved ? '✓' : ''}</span>
-                            <span className={`text-xs px-2 py-1 rounded-full ${video.pierreemmanuel_approved ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-400'}`}>P {video.pierreemmanuel_approved ? '✓' : ''}</span>
+                            <span className={`text-xs px-2 py-1 rounded-full ${video.bertrand_approved ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-400'}`}>B{video.bertrand_approved ? '✓' : ''}</span>
+                            <span className={`text-xs px-2 py-1 rounded-full ${video.sebastien_approved ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-400'}`}>S{video.sebastien_approved ? '✓' : ''}</span>
+                            <span className={`text-xs px-2 py-1 rounded-full ${video.pierreemmanuel_approved ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-400'}`}>P{video.pierreemmanuel_approved ? '✓' : ''}</span>
                           </div>
                           
                           {isExpanded && (
@@ -621,22 +649,16 @@ export default function Home() {
                                 <div className="space-y-2 mb-3 max-h-40 overflow-y-auto">
                                   {comments.map(c => (
                                     <div key={c.id} className="bg-gray-50 rounded p-2 text-sm">
-                                      <span className="font-medium text-gray-900">{c.user_id}</span>
+                                      <span className="font-medium">{c.user_id}</span>
+                                      <span className="text-gray-400 text-xs ml-2">{formatDate(c.created_at)}</span>
                                       <p className="text-gray-600">{c.text}</p>
                                     </div>
                                   ))}
                                 </div>
                               )}
                               <div className="flex gap-2">
-                                <input
-                                  type="text"
-                                  value={newComment}
-                                  onChange={(e) => setNewComment(e.target.value)}
-                                  onKeyPress={(e) => e.key === 'Enter' && addQuickComment(video.id)}
-                                  placeholder="Votre commentaire..."
-                                  className="flex-1 text-sm border rounded-lg px-3 py-2"
-                                />
-                                <button onClick={() => addQuickComment(video.id)} className="bg-blue-600 text-white px-3 py-2 rounded-lg text-sm">↑</button>
+                                <input type="text" value={newComment} onChange={(e) => setNewComment(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && addQuickComment(video.id)} placeholder="Commenter..." className="flex-1 text-sm border rounded-lg px-3 py-2" />
+                                <button onClick={() => addQuickComment(video.id)} className="bg-blue-600 text-white px-3 py-2 rounded-lg">↑</button>
                               </div>
                             </div>
                           )}
@@ -658,43 +680,39 @@ export default function Home() {
                   <table className="w-full">
                     <thead className="bg-gray-50">
                       <tr>
-                        <th className="px-4 py-3 text-left text-sm font-medium text-gray-700 w-10">
-                          <input type="checkbox" checked={selectedVideos.size === filteredVideos.length && filteredVideos.length > 0} onChange={selectAllVideos} className="w-4 h-4" />
-                        </th>
-                        <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Titre</th>
-                        <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Type</th>
-                        <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">💬</th>
-                        <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">🎵</th>
-                        <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Validations</th>
-                        <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Ma validation</th>
-                        <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Actions</th>
+                        <th className="px-4 py-3 text-left w-10"><input type="checkbox" checked={selectedVideos.size === filteredVideos.length} onChange={selectAllVideos} /></th>
+                        <th className="px-4 py-3 text-left text-sm font-medium">Titre</th>
+                        <th className="px-4 py-3 text-left text-sm font-medium">Type</th>
+                        <th className="px-4 py-3 text-left text-sm font-medium">💬</th>
+                        <th className="px-4 py-3 text-left text-sm font-medium">Validations</th>
+                        <th className="px-4 py-3 text-left text-sm font-medium">Ma validation</th>
+                        <th className="px-4 py-3 text-left text-sm font-medium">Actions</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-gray-200">
+                    <tbody className="divide-y">
                       {filteredVideos.map((video) => {
                         const myField = userToColumn[currentUser]
                         const myApproval = video[myField]
                         return (
                           <tr key={video.id} className={`hover:bg-gray-50 ${selectedVideos.has(video.id) ? 'bg-blue-50' : ''}`}>
-                            <td className="px-4 py-3"><input type="checkbox" checked={selectedVideos.has(video.id)} onChange={() => toggleVideoSelection(video.id)} className="w-4 h-4" /></td>
-                            <td className="px-4 py-3 text-sm font-medium"><button onClick={() => router.push(`/video/${video.id}`)} className="text-blue-600 hover:underline">{video.title}</button></td>
+                            <td className="px-4 py-3"><input type="checkbox" checked={selectedVideos.has(video.id)} onChange={() => toggleVideoSelection(video.id)} /></td>
+                            <td className="px-4 py-3 text-sm"><button onClick={() => router.push(`/video/${video.id}`)} className="text-blue-600 hover:underline">{video.title}</button></td>
                             <td className="px-4 py-3 text-sm">{video.video_types?.name || '-'}</td>
                             <td className="px-4 py-3 text-sm">{commentCounts[video.id] || 0}</td>
-                            <td className="px-4 py-3 text-sm">{audioCounts[video.id] || 0}</td>
                             <td className="px-4 py-3 text-sm">
-                              <span className={`inline-block w-5 h-5 text-center rounded-full text-xs leading-5 mr-1 ${video.bertrand_approved ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-400'}`}>B</span>
-                              <span className={`inline-block w-5 h-5 text-center rounded-full text-xs leading-5 mr-1 ${video.sebastien_approved ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-400'}`}>S</span>
-                              <span className={`inline-block w-5 h-5 text-center rounded-full text-xs leading-5 ${video.pierreemmanuel_approved ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-400'}`}>P</span>
+                              <span className={video.bertrand_approved ? 'text-green-600' : 'text-gray-400'}>B </span>
+                              <span className={video.sebastien_approved ? 'text-green-600' : 'text-gray-400'}>S </span>
+                              <span className={video.pierreemmanuel_approved ? 'text-green-600' : 'text-gray-400'}>P</span>
                             </td>
                             <td className="px-4 py-3">
-                              <button onClick={() => toggleMyApproval(video.id)} className={`px-3 py-1 rounded text-xs font-medium ${myApproval ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
-                                {myApproval ? '✓ Validée' : 'Valider'}
+                              <button onClick={() => toggleMyApproval(video.id)} className={`px-3 py-1 rounded text-xs ${myApproval ? 'bg-green-100 text-green-800' : 'bg-gray-100'}`}>
+                                {myApproval ? '✓' : 'Valider'}
                               </button>
                             </td>
                             <td className="px-4 py-3 text-sm space-x-2">
-                              <button onClick={() => router.push(`/video/${video.id}`)} className="text-blue-600 hover:underline">Ouvrir</button>
-                              <a href={video.file_url} download className="text-green-600 hover:underline">DL</a>
-                              <button onClick={() => deleteVideo(video.id)} className="text-red-600 hover:underline">Suppr</button>
+                              <button onClick={() => router.push(`/video/${video.id}`)} className="text-blue-600">Ouvrir</button>
+                              <a href={video.file_url} download className="text-green-600">DL</a>
+                              <button onClick={() => deleteVideo(video.id)} className="text-red-600">Suppr</button>
                             </td>
                           </tr>
                         )
@@ -708,10 +726,67 @@ export default function Home() {
             </div>
           )}
 
+          {currentSection === 'comments' && (
+            <div>
+              <h2 className="text-3xl font-bold text-gray-900 mb-2">Commentaires</h2>
+              <p className="text-gray-600 mb-6">{allComments.length} commentaire{allComments.length > 1 ? 's' : ''}</p>
+              
+              {allComments.length === 0 ? (
+                <div className="text-center py-12 text-gray-500">Aucun commentaire</div>
+              ) : (
+                <div className="space-y-4">
+                  {allComments.map(comment => (
+                    <div key={comment.id} className="bg-white rounded-xl p-4 shadow-sm">
+                      <div className="flex items-start gap-4">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="font-semibold text-gray-900">{comment.user_id}</span>
+                            <span className="text-gray-400 text-sm">•</span>
+                            <span className="text-gray-500 text-sm">{formatDate(comment.created_at)}</span>
+                          </div>
+                          <p className="text-gray-700 mb-2">{comment.text}</p>
+                          <button 
+                            onClick={() => router.push(`/video/${comment.video_id}`)}
+                            className="text-sm text-blue-600 hover:underline flex items-center gap-1"
+                          >
+                            🎬 {comment.videos?.title || 'Voir la vidéo'}
+                          </button>
+                          
+                          {replyTo === comment.id ? (
+                            <div className="mt-3 flex gap-2">
+                              <input
+                                type="text"
+                                value={replyText}
+                                onChange={(e) => setReplyText(e.target.value)}
+                                onKeyPress={(e) => e.key === 'Enter' && addReply(comment.video_id)}
+                                placeholder="Votre réponse..."
+                                className="flex-1 border rounded-lg px-3 py-2 text-sm"
+                                autoFocus
+                              />
+                              <button onClick={() => addReply(comment.video_id)} className="bg-blue-600 text-white px-3 py-2 rounded-lg text-sm">Répondre</button>
+                              <button onClick={() => { setReplyTo(null); setReplyText('') }} className="text-gray-500 px-3 py-2">Annuler</button>
+                            </div>
+                          ) : (
+                            <button 
+                              onClick={() => setReplyTo(comment.id)}
+                              className="mt-2 text-sm text-gray-500 hover:text-gray-700"
+                            >
+                              ↩ Répondre
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           {currentSection === 'validated' && (
             <div>
-              <h2 className="text-3xl font-bold text-gray-900 mb-2">Vidéos validées par tous</h2>
-              <p className="text-gray-600 mb-6">Prêtes pour export et publication</p>
+              <h2 className="text-3xl font-bold text-gray-900 mb-2">Vidéos validées</h2>
+              <p className="text-gray-600 mb-6">Prêtes pour export</p>
               {allValidatedVideos.length === 0 ? (
                 <div className="text-center py-12 text-gray-500">Aucune vidéo validée par tous</div>
               ) : (
@@ -719,11 +794,11 @@ export default function Home() {
                   <button onClick={async () => { for (const v of allValidatedVideos) { const a = document.createElement('a'); a.href = v.file_url; a.download = `${v.title}.mp4`; a.click(); await new Promise(r => setTimeout(r, 500)) }}} className="mb-6 bg-green-600 text-white px-4 py-2 rounded-lg">⬇ Tout télécharger</button>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     {allValidatedVideos.map((video) => (
-                      <div key={video.id} className="bg-white rounded-xl overflow-hidden shadow-sm border-2 border-green-500 cursor-pointer hover:shadow-md" onClick={() => router.push(`/video/${video.id}`)}>
-                        <div className="bg-green-500 text-white text-center py-1 text-sm font-medium">✅ Validée</div>
+                      <div key={video.id} className="bg-white rounded-xl overflow-hidden shadow-sm border-2 border-green-500 cursor-pointer" onClick={() => router.push(`/video/${video.id}`)}>
+                        <div className="bg-green-500 text-white text-center py-1 text-sm">✅ Validée</div>
                         <video src={video.file_url} preload="metadata" className="w-full aspect-video bg-gray-900" muted />
                         <div className="p-4">
-                          <h3 className="font-semibold text-gray-900">{video.title}</h3>
+                          <h3 className="font-semibold">{video.title}</h3>
                           <p className="text-sm text-gray-500">{video.video_types?.name || 'Sans type'}</p>
                         </div>
                       </div>
@@ -738,10 +813,9 @@ export default function Home() {
             <div>
               <h2 className="text-3xl font-bold text-gray-900 mb-6">Tâches</h2>
               <div className="bg-white rounded-xl p-6 shadow-sm mb-8">
-                <h3 className="font-semibold mb-4">Nouvelle tâche</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                   <input type="text" placeholder="Nom" value={newTask.name} onChange={(e) => setNewTask({...newTask, name: e.target.value})} className="border rounded-lg px-3 py-2" />
-                  <select value={newTask.folder_name} onChange={(e) => setNewTask({...newTask, folder_name: e.target.value})} className="border rounded-lg px-3 py-2">{taskFolders.map(f => <option key={f} value={f}>{f}</option>)}</select>
+                  <select value={newTask.folder_name} onChange={(e) => setNewTask({...newTask, folder_name: e.target.value})} className="border rounded-lg px-3 py-2">{taskFolders.map(f => <option key={f}>{f}</option>)}</select>
                   <select value={newTask.assignee} onChange={(e) => setNewTask({...newTask, assignee: e.target.value})} className="border rounded-lg px-3 py-2"><option value="">Assigné à...</option><option>Bertrand</option><option>Sébastien</option><option>Pierre Emmanuel</option></select>
                   <input type="date" value={newTask.deadline} onChange={(e) => setNewTask({...newTask, deadline: e.target.value})} className="border rounded-lg px-3 py-2" />
                 </div>
@@ -763,7 +837,7 @@ export default function Home() {
                           <div className="flex-1"><p className="font-medium">{task.name}</p>{task.description && <p className="text-sm text-gray-500">{task.description}</p>}</div>
                           {task.assignee && <span className="text-sm text-gray-600">{task.assignee}</span>}
                           {task.deadline && <span className="text-sm text-gray-500">{task.deadline}</span>}
-                          <button onClick={() => deleteTask(task.id)} className="text-red-500 hover:text-red-700">🗑</button>
+                          <button onClick={() => deleteTask(task.id)} className="text-red-500">🗑</button>
                         </div>
                       ))}
                     </div>
@@ -788,7 +862,7 @@ export default function Home() {
                     <h3 className="font-semibold text-lg mb-2">{idea.title}</h3>
                     <p className="text-gray-600 text-sm mb-4">{idea.description}</p>
                     {idea.tags && <div className="flex flex-wrap gap-2 mb-4">{idea.tags.map((tag, i) => <span key={i} className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded">{tag}</span>)}</div>}
-                    <div className="flex justify-between items-center">
+                    <div className="flex justify-between">
                       <select value={idea.status} onChange={(e) => updateIdea({...idea, status: e.target.value})} className="text-xs border rounded px-2 py-1"><option>Nouvelle</option><option>En réflexion</option><option>Validée</option><option>Rejetée</option></select>
                       <button onClick={() => deleteIdea(idea.id)} className="text-red-500 text-sm">Supprimer</button>
                     </div>
@@ -802,7 +876,7 @@ export default function Home() {
             <div>
               <h2 className="text-3xl font-bold text-gray-900 mb-6">Contacts</h2>
               <div className="bg-white rounded-xl p-6 shadow-sm mb-8">
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                   <input type="text" placeholder="Nom" value={newContact.name} onChange={(e) => setNewContact({...newContact, name: e.target.value})} className="border rounded-lg px-3 py-2" />
                   <select value={newContact.type} onChange={(e) => setNewContact({...newContact, type: e.target.value})} className="border rounded-lg px-3 py-2">{contactTypes.map(t => <option key={t}>{t}</option>)}</select>
                   <input type="text" placeholder="Email/Tel" value={newContact.contact} onChange={(e) => setNewContact({...newContact, contact: e.target.value})} className="border rounded-lg px-3 py-2" />
@@ -813,16 +887,16 @@ export default function Home() {
               </div>
               <div className="bg-white rounded-xl shadow overflow-x-auto">
                 <table className="w-full">
-                  <thead className="bg-gray-50"><tr><th className="px-4 py-3 text-left text-sm font-medium">Nom</th><th className="px-4 py-3 text-left text-sm font-medium">Type</th><th className="px-4 py-3 text-left text-sm font-medium">Contact</th><th className="px-4 py-3 text-left text-sm font-medium">Statut</th><th className="px-4 py-3 text-left text-sm font-medium">Notes</th><th className="px-4 py-3 text-left text-sm font-medium">Actions</th></tr></thead>
-                  <tbody className="divide-y divide-gray-200">
+                  <thead className="bg-gray-50"><tr><th className="px-4 py-3 text-left text-sm">Nom</th><th className="px-4 py-3 text-left text-sm">Type</th><th className="px-4 py-3 text-left text-sm">Contact</th><th className="px-4 py-3 text-left text-sm">Statut</th><th className="px-4 py-3 text-left text-sm">Notes</th><th className="px-4 py-3 text-left text-sm">Actions</th></tr></thead>
+                  <tbody className="divide-y">
                     {contacts.map(c => (
                       <tr key={c.id} className="hover:bg-gray-50">
                         <td className="px-4 py-3 text-sm font-medium">{c.name}</td>
                         <td className="px-4 py-3 text-sm">{c.type}</td>
                         <td className="px-4 py-3 text-sm">{c.contact}</td>
-                        <td className="px-4 py-3 text-sm"><select value={c.status} onChange={(e) => updateContact({...c, status: e.target.value})} className="text-xs border rounded px-2 py-1">{contactStatuses.map(s => <option key={s}>{s}</option>)}</select></td>
+                        <td className="px-4 py-3"><select value={c.status} onChange={(e) => updateContact({...c, status: e.target.value})} className="text-xs border rounded px-2 py-1">{contactStatuses.map(s => <option key={s}>{s}</option>)}</select></td>
                         <td className="px-4 py-3 text-sm text-gray-500">{c.notes}</td>
-                        <td className="px-4 py-3 text-sm"><button onClick={() => deleteContact(c.id)} className="text-red-600">Supprimer</button></td>
+                        <td className="px-4 py-3"><button onClick={() => deleteContact(c.id)} className="text-red-600 text-sm">Supprimer</button></td>
                       </tr>
                     ))}
                   </tbody>
@@ -833,12 +907,12 @@ export default function Home() {
 
           {currentSection === 'files' && (
             <div>
-              <h2 className="text-3xl font-bold text-gray-900 mb-6">Fichiers partagés</h2>
+              <h2 className="text-3xl font-bold text-gray-900 mb-6">Fichiers</h2>
               <label className="block mb-8 cursor-pointer">
                 <div className="border-2 border-dashed border-gray-300 hover:border-blue-500 rounded-xl p-8 text-center bg-white">
                   <input type="file" onChange={handleFileUpload} disabled={uploadingFile} className="hidden" />
                   <div className="text-4xl mb-2">📎</div>
-                  <div className="text-lg font-medium text-gray-700">{uploadingFile ? 'Upload...' : 'Cliquez pour uploader'}</div>
+                  <div className="text-lg font-medium">{uploadingFile ? 'Upload...' : 'Uploader'}</div>
                 </div>
               </label>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
