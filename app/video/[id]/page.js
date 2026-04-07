@@ -283,9 +283,9 @@ export default function VideoPage({ params }) {
         {/* Flèche gauche */}
         <div className="hidden md:flex flex-col items-center justify-start pt-12 w-32 shrink-0">
           {prevVideo ? (
-            <button onClick={() => navigateToVideo(currentIndex - 1)} className="flex flex-col items-center gap-1 text-gray-400 hover:text-gray-700 transition-colors group px-2">
-              <span className="text-2xl group-hover:-translate-x-1 transition-transform">←</span>
-              <span className="text-xs text-center leading-tight max-w-[90px] line-clamp-2">{prevVideo.title}</span>
+            <button onClick={() => navigateToVideo(currentIndex - 1)} className="flex flex-col items-center gap-1 text-gray-400 hover:text-gray-700 transition-colors px-2">
+              <span className="text-2xl">←</span>
+              <span className="text-xs text-center leading-tight max-w-[90px] overflow-hidden">{prevVideo.title.substring(0, 30)}</span>
             </button>
           ) : <div className="w-20" />}
         </div>
@@ -330,18 +330,20 @@ export default function VideoPage({ params }) {
             <div className="mb-5 bg-white rounded-2xl p-4 border border-gray-100">
               <div className="flex flex-wrap items-center gap-2">
                 {/* Noms cliquables — clic = toggle son propre vote */}
-                {[['Bertrand', 'bertrand_vote'], ['Sébastien', 'sebastien_vote'], ['Pierre E.', 'pierreemmanuel_vote']].map(([name, col]) => {
+                {[
+                  ['Bertrand', 'bertrand_vote', 'Bertrand'],
+                  ['Sébastien', 'sebastien_vote', 'Sébastien'],
+                  ['Pierre E.', 'pierreemmanuel_vote', 'Pierre Emmanuel']
+                ].map(([label, col, fullName]) => {
                   const v = video[col]
-                  const isMe = (name === currentUser || (name === 'Pierre E.' && currentUser === 'Pierre Emmanuel'))
+                  const isMe = currentUser === fullName
                   return (
                     <button
                       key={col}
-                      onClick={() => isMe ? castVote(v === 'oui' ? null : 'oui') : undefined}
-                      className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors
-                        ${v === 'oui' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-400'}
-                        ${isMe ? 'cursor-pointer hover:opacity-80' : 'cursor-default'}`}
+                      onClick={() => { if (isMe) castVote(v === 'oui' ? null : 'oui') }}
+                      className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${v === 'oui' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-400'} ${isMe ? 'cursor-pointer hover:opacity-75' : 'cursor-default'}`}
                     >
-                      {name} {v === 'oui' ? '✓' : ''}
+                      {label} {v === 'oui' ? '✓' : ''}
                     </button>
                   )
                 })}
@@ -451,9 +453,9 @@ export default function VideoPage({ params }) {
         {/* Flèche droite */}
         <div className="hidden md:flex flex-col items-center justify-start pt-12 w-32 shrink-0">
           {nextVideo ? (
-            <button onClick={() => navigateToVideo(currentIndex + 1)} className="flex flex-col items-center gap-1 text-gray-400 hover:text-gray-700 transition-colors group px-2">
-              <span className="text-2xl group-hover:translate-x-1 transition-transform">→</span>
-              <span className="text-xs text-center leading-tight max-w-[90px] line-clamp-2">{nextVideo.title}</span>
+            <button onClick={() => navigateToVideo(currentIndex + 1)} className="flex flex-col items-center gap-1 text-gray-400 hover:text-gray-700 transition-colors px-2">
+              <span className="text-2xl">→</span>
+              <span className="text-xs text-center leading-tight max-w-[90px] overflow-hidden">{nextVideo.title.substring(0, 30)}</span>
             </button>
           ) : <div className="w-20" />}
         </div>
