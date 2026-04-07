@@ -23,11 +23,10 @@ const userToVoteColumn = {
 
 function getVideoStatus(video) {
   if (!video) return 'En attente'
+  if (video.is_pad) return 'PAD'
   const votes = [video.bertrand_vote, video.sebastien_vote, video.pierreemmanuel_vote]
-  const castVotes = votes.filter(Boolean)
-  if (castVotes.length === 0) return 'En attente'
-  if (castVotes.every(v => v === 'pad') && castVotes.length === 3) return 'PAD'
-  if (castVotes.some(v => v === 'a_terminer')) return 'À terminer'
+  if (votes.some(v => v === 'non')) return 'À supprimer'
+  if (votes.every(v => v === 'oui')) return 'À terminer'
   return 'En attente'
 }
 
@@ -166,13 +165,22 @@ export default function VideoPage({ params }) {
   }
 
   async function castVote(vote) {
+    // vote: 'oui' | 'non' | null
     if (!video || !currentUser) return
     const voteCol = userToVoteColumn[currentUser]
-    const approvedCol = userToColumn[currentUser]
-    await supabase.from('videos').update({
-      [voteCol]: vote,
-      [approvedCol]: vote !== null
-    }).eq('id', video.id)
+    await supabase.from('videos').update({ [voteCol]: vote }).eq('id', video.id)
+    loadAllVideos()
+  }
+
+  async function markAsPad() {
+    if (!video) return
+    await supabase.from('videos').update({ is_pad: true }).eq('id', video.id)
+    loadAllVideos()
+  }
+
+  async function unmarkAsPad() {
+    if (!video) return
+    await supabase.from('videos').update({ is_pad: false }).eq('id', video.id)
     loadAllVideos()
   }
 
@@ -282,12 +290,12 @@ export default function VideoPage({ params }) {
       >
         {/* Video player */}
         <div className="relative bg-black">
-          <div className={`absolute top-4 right-4 z-10 px-3 py-1 rounded-full text-sm font-medium ${videoStatus === 'PAD' ? 'bg-green-500 text-white' : videoStatus === 'À terminer' ? 'bg-orange-500 text-white' : 'bg-gray-600 text-white'}`}>
-            {videoStatus === 'PAD' ? '✅ PAD' : videoStatus === 'À terminer' ? '🔧 À terminer' : '⏳ En attente'}
+          <div className="absolute top-3 right-3 z-10 bg-black/50 text-white px-2.5 py-1 rounded-full text-xs font-medium">
+            {videoStatus}
           </div>
-          <video 
-            src={video.file_url} 
-            controls 
+          <video
+            src={video.file_url}
+            controls
             className="w-full max-h-[60vh] object-contain"
             preload="metadata"
           />
@@ -317,63 +325,74 @@ export default function VideoPage({ params }) {
             </div>
           </div>
 
-          {/* Validation */}
-          <div className="mb-6">
-            <p className="text-sm text-gray-500 mb-3 font-medium">Mon vote :</p>
-            <div className="flex gap-3 flex-wrap">
-              <button
-                onClick={() => castVote('a_terminer')}
-                className={`px-5 py-3 rounded-xl font-medium transition-all ${myVote === 'a_terminer' ? 'bg-orange-500 text-white shadow-md' : 'bg-orange-50 text-orange-600 hover:bg-orange-100'}`}
-              >
-                🔧 À terminer
-              </button>
-              <button
-                onClick={() => castVote('pad')}
-                className={`px-5 py-3 rounded-xl font-medium transition-all ${myVote === 'pad' ? 'bg-green-500 text-white shadow-md' : 'bg-green-50 text-green-600 hover:bg-green-100'}`}
-              >
-                ✅ PAD — Prêt À Diffuser
-              </button>
-              {myVote && (
-                <button onClick={() => castVote(null)} className="px-4 py-3 rounded-xl bg-gray-100 text-gray-500 hover:bg-gray-200 font-medium">
-                  ✕ Effacer mon vote
-                </button>
-              )}
-            </div>
-
-            <div className="flex flex-wrap gap-3 mt-4">
+          {/* Vote / Statut */}
+          <div className="mb-6 bg-white rounded-2xl p-4 border border-gray-100">
+            <div className="flex flex-wrap gap-2 mb-4">
               {[['Bertrand', 'bertrand_vote'], ['Sébastien', 'sebastien_vote'], ['Pierre E.', 'pierreemmanuel_vote']].map(([name, col]) => {
                 const v = video[col]
                 return (
-                  <span key={col} className={`px-3 py-2 rounded-full text-sm font-medium ${v === 'pad' ? 'bg-green-100 text-green-800' : v === 'a_terminer' ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-400'}`}>
-                    {name} {v === 'pad' ? '✅' : v === 'a_terminer' ? '🔧' : '⏳'}
+                  <span key={col} className={`px-3 py-1.5 rounded-full text-sm font-medium ${v === 'oui' ? 'bg-gray-900 text-white' : v === 'non' ? 'bg-gray-100 text-gray-400 line-through' : 'bg-gray-100 text-gray-500'}`}>
+                    {name} {v === 'oui' ? '✓' : v === 'non' ? '✗' : ''}
                   </span>
                 )
               })}
             </div>
+
+            {videoStatus === 'En attente' && (
+              <div className="flex gap-2">
+                <button onClick={() => castVote(myVote === 'oui' ? null : 'oui')}
+                  className={`flex-1 md:flex-none px-6 py-2.5 rounded-xl font-medium text-sm border ${myVote === 'oui' ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-700 border-gray-200'}`}>
+                  Oui
+                </button>
+                <button onClick={() => castVote(myVote === 'non' ? null : 'non')}
+                  className={`flex-1 md:flex-none px-6 py-2.5 rounded-xl font-medium text-sm border ${myVote === 'non' ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-700 border-gray-200'}`}>
+                  Non
+                </button>
+              </div>
+            )}
+
+            {videoStatus === 'À supprimer' && (
+              <p className="text-sm text-gray-500">Au moins un Non — à discuter avant de supprimer.</p>
+            )}
+
+            {videoStatus === 'À terminer' && (
+              <div>
+                {video.referent === currentUser ? (
+                  <button onClick={markAsPad} className="px-6 py-2.5 rounded-xl font-medium text-sm bg-gray-900 text-white">
+                    Marquer PAD
+                  </button>
+                ) : (
+                  <p className="text-sm text-gray-400">
+                    {video.referent ? `La prise en charge (${video.referent}) peut marquer PAD.` : 'Aucune prise en charge.'}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {videoStatus === 'PAD' && (
+              <div>
+                <p className="text-sm text-gray-500 mb-2">Prêt à diffuser.</p>
+                {video.referent === currentUser && (
+                  <button onClick={unmarkAsPad} className="text-sm text-gray-400 border border-gray-200 px-4 py-1.5 rounded-lg">Annuler PAD</button>
+                )}
+              </div>
+            )}
           </div>
 
-          {/* Référent */}
-          <div className="mb-6 bg-white rounded-xl p-4 shadow-sm">
+          {/* Prise en charge */}
+          <div className="mb-6 bg-white rounded-2xl p-4 border border-gray-100">
             <div className="flex items-center justify-between">
               <div>
-                <h2 className="font-semibold mb-1">🎯 Référent modifications</h2>
-                {video.referent ? (
-                  <p className="text-purple-600 font-medium">{video.referent}</p>
-                ) : (
-                  <p className="text-gray-400 text-sm italic">Aucun référent — cliquez pour vous l'approprier</p>
-                )}
+                <p className="text-xs text-gray-400 mb-0.5">Prise en charge</p>
+                <p className="font-medium text-sm">{video.referent || '—'}</p>
               </div>
               <div>
                 {video.referent === currentUser ? (
-                  <button onClick={releaseReferent} className="px-4 py-2 bg-red-50 text-red-500 rounded-lg text-sm font-medium hover:bg-red-100">
-                    Libérer
-                  </button>
+                  <button onClick={releaseReferent} className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm text-gray-500">Libérer</button>
                 ) : !video.referent ? (
-                  <button onClick={claimReferent} className="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700">
-                    🙋 Prendre en charge
-                  </button>
+                  <button onClick={claimReferent} className="px-3 py-1.5 bg-gray-900 text-white rounded-lg text-sm">Prendre en charge</button>
                 ) : (
-                  <span className="text-xs text-gray-400 italic">Déjà pris</span>
+                  <span className="text-xs text-gray-400">{video.referent}</span>
                 )}
               </div>
             </div>

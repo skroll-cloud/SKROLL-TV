@@ -21,21 +21,29 @@ const userToVoteColumn = {
   'Pierre Emmanuel': 'pierreemmanuel_vote'
 }
 
-// Calcule le statut global d'une vidéo à partir des votes individuels
+// Calcule le statut global d'une vidéo
+// En attente → tous n'ont pas encore approuvé le concept
+// À terminer → les 3 ont approuvé le concept, travail technique en cours
+// PAD        → le référent a déclaré la vidéo prête à diffuser
+// Statut calculé à partir des votes Oui/Non + is_pad
+// En attente  → pas encore 3 votes Oui, et aucun Non
+// À terminer  → les 3 ont voté Oui
+// À supprimer → au moins un Non
+// PAD         → référent a déclaré la vidéo prête
 function getVideoStatus(video) {
+  if (!video) return 'En attente'
+  if (video.is_pad) return 'PAD'
   const votes = [video.bertrand_vote, video.sebastien_vote, video.pierreemmanuel_vote]
-  const castVotes = votes.filter(Boolean)
-  if (castVotes.length === 0) return 'En attente'
-  if (castVotes.every(v => v === 'pad') && castVotes.length === 3) return 'PAD'
-  if (castVotes.some(v => v === 'a_terminer')) return 'À terminer'
-  if (castVotes.some(v => v === 'pad') && castVotes.length < 3) return 'En attente'
+  if (votes.some(v => v === 'non')) return 'À supprimer'
+  if (votes.every(v => v === 'oui')) return 'À terminer'
   return 'En attente'
 }
 
-function statusBadgeClass(status) {
-  if (status === 'PAD') return 'bg-green-100 text-green-700 border border-green-300'
-  if (status === 'À terminer') return 'bg-orange-100 text-orange-700 border border-orange-300'
-  return 'bg-gray-100 text-gray-500 border border-gray-200'
+function statusLabel(status) {
+  if (status === 'PAD') return 'PAD'
+  if (status === 'À terminer') return 'À terminer'
+  if (status === 'À supprimer') return 'À supprimer'
+  return 'En attente'
 }
 
 export default function Home() {
@@ -97,6 +105,11 @@ export default function Home() {
   
   const [sharedFiles, setSharedFiles] = useState([])
   const [uploadingFile, setUploadingFile] = useState(false)
+
+  // Demande de voix
+  const [voixRequestVideoId, setVoixRequestVideoId] = useState(null)
+  const [voixTarget, setVoixTarget] = useState('')
+  const [voixNote, setVoixNote] = useState('')
 
   // Detect mobile
   useEffect(() => {
@@ -275,14 +288,12 @@ export default function Home() {
         if (error) { alert(`Erreur: ${error.message}`); continue }
         
         const { data: urlData } = supabase.storage.from('Videos').getPublicUrl(filePath)
-        await supabase.from('videos').insert([{ 
-          title: file.name.replace(/\.[^/.]+$/, ''), 
-          file_url: urlData.publicUrl, 
-          uploaded_by: currentUser, 
-          status: 'En cours', 
-          bertrand_approved: false, 
-          sebastien_approved: false, 
-          pierreemmanuel_approved: false 
+        await supabase.from('videos').insert([{
+          title: file.name.replace(/\.[^/.]+$/, ''),
+          file_url: urlData.publicUrl,
+          uploaded_by: currentUser,
+          referent: currentUser,
+          status: 'En cours'
         }])
       } catch (error) { alert(`Erreur: ${error.message}`) }
     }
@@ -295,32 +306,37 @@ export default function Home() {
     event.target.value = ''
   }
   
+  // Vote : 'oui' | 'non' | null
   async function castVote(videoId, vote) {
-    // vote : 'a_terminer' | 'pad' | null (null = effacer son vote)
     if (!currentUser) return
     const voteCol = userToVoteColumn[currentUser]
-    const approvedCol = userToColumn[currentUser]
-    await supabase.from('videos').update({
-      [voteCol]: vote,
-      [approvedCol]: vote !== null
-    }).eq('id', videoId)
+    await supabase.from('videos').update({ [voteCol]: vote }).eq('id', videoId)
     loadVideos()
   }
 
-  // Gardé pour compatibilité avec la page vidéo détail
-  async function toggleMyApproval(videoId) {
-    const video = videos.find(v => v.id === videoId)
-    if (!video || !currentUser) return
-    const voteCol = userToVoteColumn[currentUser]
-    const approvedCol = userToColumn[currentUser]
-    const currentVote = video[voteCol]
-    // Toggle : si déjà PAD → efface, sinon met PAD
-    const newVote = currentVote === 'pad' ? null : 'pad'
-    await supabase.from('videos').update({
-      [voteCol]: newVote,
-      [approvedCol]: newVote !== null
-    }).eq('id', videoId)
+  // Marquer PAD — réservé au référent depuis la page ou le détail
+  async function markAsPad(videoId) {
+    await supabase.from('videos').update({ is_pad: true }).eq('id', videoId)
     loadVideos()
+  }
+
+  async function unmarkAsPad(videoId) {
+    await supabase.from('videos').update({ is_pad: false }).eq('id', videoId)
+    loadVideos()
+  }
+
+  // Demande de voix : poste un commentaire formaté
+  async function submitVoixRequest(videoId) {
+    if (!voixTarget || !videoId) return
+    const msg = `🎙️ ${currentUser} demande une voix à ${voixTarget}${voixNote ? ` — ${voixNote}` : ''}`
+    await supabase.from('comments').insert([{ video_id: videoId, user_id: currentUser, text: msg }])
+    setVoixRequestVideoId(null)
+    setVoixTarget('')
+    setVoixNote('')
+    loadCommentCounts()
+    loadAllComments()
+    if (expandedComments !== videoId) toggleComments(videoId)
+    else loadVideoComments(videoId)
   }
   
   async function deleteVideo(videoId) { 
@@ -503,128 +519,75 @@ export default function Home() {
     filteredVideos = [...filteredVideos].sort((a, b) => (commentCounts[b.id] || 0) - (commentCounts[a.id] || 0))
   }
 
-  const toValidateCount = currentUser ? videos.filter(v => { const vc = userToVoteColumn[currentUser]; return !v[vc] }).length : 0
-  const allValidatedVideos = videos.filter(v => getVideoStatus(v) === 'PAD')
-  const enAttenteCount = videos.filter(v => getVideoStatus(v) === 'En attente').length
-  const aTerminerCount = videos.filter(v => getVideoStatus(v) === 'À terminer').length
-  const padCount = videos.filter(v => getVideoStatus(v) === 'PAD').length
+  const toValidateCount = currentUser ? videos.filter(v => { const vc = userToVoteColumn[currentUser]; return !v[vc] && getVideoStatus(v) === 'En attente' }).length : 0
+  const enAttenteCount  = videos.filter(v => getVideoStatus(v) === 'En attente').length
+  const aTerminerCount  = videos.filter(v => getVideoStatus(v) === 'À terminer').length
+  const aSupprimerCount = videos.filter(v => getVideoStatus(v) === 'À supprimer').length
+  const padCount        = videos.filter(v => getVideoStatus(v) === 'PAD').length
 
-  // Mobile swipe view render
+  // Mobile swipe view
   const renderMobileSwipeView = () => {
-    if (filteredVideos.length === 0) return <div className="text-center py-12 text-gray-500">Aucune vidéo</div>
-
+    if (filteredVideos.length === 0) return <div className="text-center py-12 text-gray-400">Aucune vidéo</div>
     const video = filteredVideos[currentVideoIndex]
     if (!video) return null
-
-    const videoStatus = getVideoStatus(video)
+    const vs = getVideoStatus(video)
     const myVote = currentUser ? video[userToVoteColumn[currentUser]] : null
-    
+    const isReferent = video.referent === currentUser
     return (
-      <div 
-        ref={swipeContainerRef}
-        onTouchStart={onTouchStart}
-        onTouchMove={onTouchMove}
-        onTouchEnd={onTouchEnd}
-        className="bg-white rounded-2xl overflow-hidden shadow-lg"
-      >
+      <div ref={swipeContainerRef} onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd} className="bg-white rounded-2xl overflow-hidden shadow-sm border border-gray-100">
         <div className="relative">
-          <div className="absolute top-2 left-2 z-10 bg-black/50 text-white text-xs px-2 py-1 rounded-full">
-            {currentVideoIndex + 1}/{filteredVideos.length}
-          </div>
-          <div className={`absolute top-2 right-2 z-10 text-xs px-2 py-1 rounded-full font-medium ${videoStatus === 'PAD' ? 'bg-green-500 text-white' : videoStatus === 'À terminer' ? 'bg-orange-500 text-white' : 'bg-gray-600 text-white'}`}>
-            {videoStatus === 'PAD' ? '✅ PAD' : videoStatus === 'À terminer' ? '🔧 À terminer' : '⏳ En attente'}
-          </div>
-          <video
-            src={video.file_url}
-            controls
-            preload="metadata"
-            className="w-full aspect-video bg-gray-900"
-            playsInline
-          />
+          <div className="absolute top-2 left-2 z-10 bg-black/40 text-white text-xs px-2 py-0.5 rounded-full">{currentVideoIndex + 1}/{filteredVideos.length}</div>
+          <video src={video.file_url} controls preload="metadata" className="w-full aspect-video bg-gray-900" playsInline />
         </div>
         <div className="p-4">
-          <h3 className="font-bold text-lg mb-2">{video.title}</h3>
-
-          {/* Type selector */}
-          <div className="flex gap-2 mb-3">
-            <select
-              value={video.type_id || ''}
-              onChange={(e) => updateVideoType(video.id, e.target.value)}
-              className="text-sm border rounded-lg px-2 py-1 flex-1"
-            >
-              <option value="">Type...</option>
-              {videoTypes.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-            </select>
+          <div className="flex items-start justify-between mb-1">
+            <h3 className="font-semibold text-base flex-1 pr-2">{video.title}</h3>
+            <span className="text-xs text-gray-400 shrink-0">{vs}</span>
           </div>
+          <p className="text-xs text-gray-400 mb-3">Prise en charge : {video.referent || '—'}</p>
 
-          {/* Votes individuels */}
+          {/* Votes */}
           <div className="flex gap-2 mb-3">
             {[['Bertrand', 'B', 'bertrand_vote'], ['Sébastien', 'S', 'sebastien_vote'], ['Pierre Emmanuel', 'P', 'pierreemmanuel_vote']].map(([name, initial, col]) => {
               const v = video[col]
               return (
-                <span key={col} className={`px-2 py-1 rounded text-xs font-bold ${v === 'pad' ? 'bg-green-100 text-green-800' : v === 'a_terminer' ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-500'}`}
-                  title={`${name} : ${v === 'pad' ? 'PAD' : v === 'a_terminer' ? 'À terminer' : 'En attente'}`}>
-                  {initial}{v === 'pad' ? '✅' : v === 'a_terminer' ? '🔧' : ''}
+                <span key={col} title={name}
+                  className={`px-2 py-0.5 rounded text-xs font-medium ${v === 'oui' ? 'bg-gray-900 text-white' : v === 'non' ? 'bg-gray-200 text-gray-500 line-through' : 'bg-gray-100 text-gray-400'}`}>
+                  {initial} {v === 'oui' ? '✓' : v === 'non' ? '✗' : ''}
                 </span>
               )
             })}
           </div>
 
-          {/* Boutons de vote */}
-          <div className="flex gap-2 mb-3">
-            <button onClick={() => castVote(video.id, 'a_terminer')}
-              className={`flex-1 py-3 rounded-xl font-semibold ${myVote === 'a_terminer' ? 'bg-orange-500 text-white' : 'bg-orange-50 text-orange-600'}`}>
-              🔧 À terminer
-            </button>
-            <button onClick={() => castVote(video.id, 'pad')}
-              className={`flex-1 py-3 rounded-xl font-semibold ${myVote === 'pad' ? 'bg-green-500 text-white' : 'bg-green-50 text-green-600'}`}>
-              ✅ PAD
-            </button>
-            {myVote && (
-              <button onClick={() => castVote(video.id, null)} className="px-3 py-3 rounded-xl bg-gray-100 text-gray-500" title="Effacer mon vote">✕</button>
-            )}
-          </div>
-          
-          {/* Référent */}
-          <div className="flex items-center justify-between text-sm mb-3 bg-gray-50 rounded-lg px-3 py-2">
-            {video.referent ? (
-              <span className="text-purple-600 font-medium">🎯 {video.referent}</span>
-            ) : (
-              <span className="text-gray-400 italic">Pas de référent</span>
-            )}
-            {video.referent === currentUser ? (
-              <button onClick={() => releaseReferent(video.id)} className="text-red-500 text-xs">Libérer</button>
-            ) : !video.referent ? (
-              <button onClick={() => claimReferent(video.id)} className="text-blue-500 text-xs font-medium">🙋 Prendre</button>
-            ) : null}
-          </div>
+          {/* Vote Oui/Non (En attente uniquement) */}
+          {vs === 'En attente' && (
+            <div className="flex gap-2 mb-3">
+              <button onClick={() => castVote(video.id, myVote === 'oui' ? null : 'oui')}
+                className={`flex-1 py-2.5 rounded-xl text-sm font-medium border ${myVote === 'oui' ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-700 border-gray-200'}`}>
+                Oui
+              </button>
+              <button onClick={() => castVote(video.id, myVote === 'non' ? null : 'non')}
+                className={`flex-1 py-2.5 rounded-xl text-sm font-medium border ${myVote === 'non' ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-700 border-gray-200'}`}>
+                Non
+              </button>
+            </div>
+          )}
+          {vs === 'À terminer' && isReferent && (
+            <button onClick={() => markAsPad(video.id)} className="w-full py-2.5 rounded-xl text-sm font-medium bg-gray-900 text-white mb-3">Marquer PAD</button>
+          )}
+          {vs === 'PAD' && isReferent && (
+            <button onClick={() => unmarkAsPad(video.id)} className="w-full py-2.5 rounded-xl text-sm font-medium border border-gray-200 text-gray-500 mb-3">Annuler PAD</button>
+          )}
 
-          {/* Links row */}
-          <div className="flex justify-between text-sm">
-            <button onClick={() => router.push(`/video/${video.id}`)} className="text-blue-600">🎬 Détails</button>
-            <a href={video.file_url} download className="text-green-600">⬇ Télécharger</a>
-            <button onClick={() => deleteVideo(video.id)} className="text-red-600">🗑 Supprimer</button>
+          <div className="flex justify-between text-sm text-gray-400 pt-3 border-t border-gray-100">
+            <button onClick={() => router.push(`/video/${video.id}`)} className="text-gray-700">Détails</button>
+            <a href={video.file_url} download>Télécharger</a>
           </div>
-          
-          {/* Navigation buttons */}
-          <div className="flex justify-between mt-4 pt-4 border-t">
-            <button 
-              onClick={() => setCurrentVideoIndex(prev => Math.max(0, prev - 1))}
-              disabled={currentVideoIndex === 0}
-              className={`px-4 py-2 rounded-lg ${currentVideoIndex === 0 ? 'bg-gray-100 text-gray-400' : 'bg-gray-200'}`}
-            >
-              ← Précédent
-            </button>
-            <button 
-              onClick={() => setCurrentVideoIndex(prev => Math.min(filteredVideos.length - 1, prev + 1))}
-              disabled={currentVideoIndex === filteredVideos.length - 1}
-              className={`px-4 py-2 rounded-lg ${currentVideoIndex === filteredVideos.length - 1 ? 'bg-gray-100 text-gray-400' : 'bg-gray-200'}`}
-            >
-              Suivant →
-            </button>
+          <div className="flex justify-between mt-3">
+            <button onClick={() => setCurrentVideoIndex(p => Math.max(0, p - 1))} disabled={currentVideoIndex === 0} className={`px-4 py-2 rounded-lg text-sm ${currentVideoIndex === 0 ? 'text-gray-300' : 'text-gray-600'}`}>← Précédent</button>
+            <button onClick={() => setCurrentVideoIndex(p => Math.min(filteredVideos.length - 1, p + 1))} disabled={currentVideoIndex === filteredVideos.length - 1} className={`px-4 py-2 rounded-lg text-sm ${currentVideoIndex === filteredVideos.length - 1 ? 'text-gray-300' : 'text-gray-600'}`}>Suivant →</button>
           </div>
         </div>
-        <p className="text-center text-gray-400 text-sm pb-4">← Swipez pour naviguer →</p>
       </div>
     )
   }
@@ -682,15 +645,16 @@ export default function Home() {
             <ul className="space-y-2">
               {[
                 {id:'videos', icon:'🎬', label:'Toutes les vidéos'},
-                {id:'en-attente', icon:'⏳', label:`En attente (${enAttenteCount})`},
-                {id:'a-terminer', icon:'🔧', label:`À terminer (${aTerminerCount})`},
-                {id:'pad', icon:'✅', label:`PAD (${padCount})`},
-                {id:'mes-videos', icon:'🎯', label:'Mes vidéos'},
-                {id:'comments', icon:'💬', label:`Commentaires (${allComments.length})`},
-                {id:'tasks', icon:'📋', label:'Tâches'},
-                {id:'ideas', icon:'💡', label:'Idées'},
-                {id:'contacts', icon:'👥', label:'Contacts'},
-                {id:'files', icon:'📁', label:'Fichiers'}
+                {id:'en-attente', icon:'◦', label:`En attente (${enAttenteCount})`},
+                {id:'a-terminer', icon:'◦', label:`À terminer (${aTerminerCount})`},
+                {id:'a-supprimer', icon:'◦', label:`À supprimer (${aSupprimerCount})`},
+                {id:'pad', icon:'◦', label:`PAD (${padCount})`},
+                {id:'mes-videos', icon:'◦', label:'Mes vidéos'},
+                {id:'comments', icon:'◦', label:`Commentaires (${allComments.length})`},
+                {id:'tasks', icon:'◦', label:'Tâches'},
+                {id:'ideas', icon:'◦', label:'Idées'},
+                {id:'contacts', icon:'◦', label:'Contacts'},
+                {id:'files', icon:'◦', label:'Fichiers'}
               ].map((item) => (
                 <li key={item.id}>
                   <button onClick={() => { setCurrentSection(item.id); setMobileMenuOpen(false) }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg ${currentSection === item.id ? 'bg-blue-50 text-blue-600' : 'text-gray-700'}`}>
@@ -836,108 +800,84 @@ export default function Home() {
               
               {/* Grid view (mobile grid or desktop) */}
               {((isMobile && mobileViewMode === 'grid') || (!isMobile && viewMode === 'grid')) && (
-                <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-6">
+                <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
                   {filteredVideos.map((video) => {
-                    const myField = userToColumn[currentUser]
-                    const myApproval = video[myField]
-                    const allApproved = video.bertrand_approved && video.sebastien_approved && video.pierreemmanuel_approved
-                    const commentCount = commentCounts[video.id] || 0
-                    
-                    const videoStatus = getVideoStatus(video)
+                    const vs = getVideoStatus(video)
                     const myVote = currentUser ? video[userToVoteColumn[currentUser]] : null
+                    const commentCount = commentCounts[video.id] || 0
+                    const isReferent = video.referent === currentUser
 
                     return (
-                      <div key={video.id} className={`bg-white rounded-xl overflow-hidden shadow-sm ${videoStatus === 'PAD' ? 'ring-2 ring-green-500' : videoStatus === 'À terminer' ? 'ring-2 ring-orange-400' : ''}`}>
+                      <div key={video.id} className="bg-white rounded-2xl overflow-hidden shadow-sm border border-gray-100">
                         <div className="relative cursor-pointer" onClick={() => router.push(`/video/${video.id}`)}>
-                          <div className={`absolute top-1 right-1 z-10 text-xs px-1.5 py-0.5 rounded-full font-medium ${videoStatus === 'PAD' ? 'bg-green-500 text-white' : videoStatus === 'À terminer' ? 'bg-orange-500 text-white' : 'bg-gray-500 text-white'}`}>
-                            {videoStatus === 'PAD' ? '✅ PAD' : videoStatus === 'À terminer' ? '🔧' : '⏳'}
-                          </div>
                           <video src={video.file_url} preload="metadata" className="w-full aspect-video bg-gray-900" muted />
                         </div>
-                        <div className="p-2 md:p-4">
-                          <h3 className="font-semibold text-sm md:text-base truncate mb-1">{video.title}</h3>
+                        <div className="p-3">
+                          <div className="flex items-start justify-between mb-1">
+                            <h3 className="font-semibold text-sm leading-tight flex-1 pr-2 truncate">{video.title}</h3>
+                            <span className="text-xs text-gray-400 shrink-0">{vs}</span>
+                          </div>
+                          <p className="text-xs text-gray-400 mb-2 truncate">{video.referent || 'Pas de prise en charge'}</p>
 
-                          {/* Type selector */}
-                          <select
-                            value={video.type_id || ''}
-                            onChange={(e) => { e.stopPropagation(); updateVideoType(video.id, e.target.value) }}
-                            className="text-xs border rounded px-1 py-0.5 mb-2 w-full"
-                          >
-                            <option value="">Type...</option>
-                            {videoTypes.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-                          </select>
-
-                          {/* Votes des 3 personnes */}
+                          {/* Votes B / S / P */}
                           <div className="flex gap-1 mb-2">
-                            {[['Bertrand', 'B', 'bertrand_vote'], ['Sébastien', 'S', 'sebastien_vote'], ['Pierre Emmanuel', 'P', 'pierreemmanuel_vote']].map(([name, initial, col]) => {
+                            {[['B','bertrand_vote'],['S','sebastien_vote'],['P','pierreemmanuel_vote']].map(([init, col]) => {
                               const v = video[col]
                               return (
-                                <span key={col} title={`${name} : ${v === 'pad' ? 'PAD' : v === 'a_terminer' ? 'À terminer' : 'En attente'}`}
-                                  className={`px-1.5 py-0.5 rounded text-xs font-bold ${v === 'pad' ? 'bg-green-100 text-green-700' : v === 'a_terminer' ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-400'}`}>
-                                  {initial}{v === 'pad' ? '✅' : v === 'a_terminer' ? '🔧' : ''}
+                                <span key={col} className={`px-1.5 py-0.5 rounded text-xs font-medium ${v === 'oui' ? 'bg-gray-900 text-white' : v === 'non' ? 'bg-gray-100 text-gray-400 line-through' : 'bg-gray-100 text-gray-400'}`}>
+                                  {init}{v === 'oui' ? '✓' : v === 'non' ? '✗' : ''}
                                 </span>
                               )
                             })}
-                            {/* Bulle commentaire */}
-                            <button
-                              onClick={() => toggleComments(video.id)}
-                              className={`ml-auto text-xs px-1.5 py-0.5 rounded ${expandedComments === video.id ? 'bg-yellow-300 text-yellow-900 font-medium' : commentCount > 0 ? 'bg-yellow-100 text-yellow-800 hover:bg-yellow-200' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
-                            >💬 {commentCount > 0 ? commentCount : '+'}</button>
+                            <button onClick={() => toggleComments(video.id)}
+                              className={`ml-auto text-xs px-1.5 py-0.5 rounded ${expandedComments === video.id ? 'bg-gray-900 text-white' : commentCount > 0 ? 'bg-gray-100 text-gray-600' : 'bg-gray-50 text-gray-400'}`}>
+                              {commentCount > 0 ? commentCount : '+'} 💬
+                            </button>
                           </div>
 
-                          {/* Commentaires inline */}
+                          {/* Inline comments */}
                           {expandedComments === video.id && (
-                            <div className="mb-2 border border-yellow-100 rounded-lg p-2 bg-yellow-50">
-                              <div className="space-y-1.5 mb-2 max-h-28 overflow-y-auto">
-                                {(videoComments[video.id] || []).length === 0 ? (
-                                  <p className="text-xs text-gray-400 italic">Aucun commentaire</p>
-                                ) : (videoComments[video.id] || []).map(c => (
-                                  <div key={c.id} className="text-xs">
-                                    <span className={`font-semibold mr-1 ${c.user_id === 'Bertrand' ? 'text-blue-600' : c.user_id === 'Sébastien' ? 'text-green-600' : 'text-purple-600'}`}>{c.user_id?.split(' ')[0]}</span>
-                                    <span className="text-gray-700">{c.text}</span>
-                                  </div>
-                                ))}
+                            <div className="mb-2 rounded-xl border border-gray-100 p-2 bg-gray-50">
+                              <div className="space-y-1 mb-2 max-h-24 overflow-y-auto">
+                                {(videoComments[video.id] || []).length === 0
+                                  ? <p className="text-xs text-gray-400">Aucun commentaire</p>
+                                  : (videoComments[video.id] || []).map(c => (
+                                    <div key={c.id} className="text-xs">
+                                      <span className="font-medium mr-1 text-gray-700">{c.user_id?.split(' ')[0]}</span>
+                                      <span className="text-gray-500">{c.text}</span>
+                                    </div>
+                                  ))}
                               </div>
                               <div className="flex gap-1">
-                                <input type="text" value={newComment} onChange={(e) => setNewComment(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') addQuickComment(video.id) }} placeholder="Commenter..." className="flex-1 text-xs border rounded px-2 py-1 bg-white" />
-                                <button onClick={() => addQuickComment(video.id)} className="text-xs bg-blue-600 text-white px-2 py-1 rounded">→</button>
+                                <input type="text" value={newComment} onChange={e => setNewComment(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') addQuickComment(video.id) }} placeholder="Commenter..." className="flex-1 text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white" />
+                                <button onClick={() => addQuickComment(video.id)} className="text-xs bg-gray-900 text-white px-2 py-1 rounded-lg">→</button>
                               </div>
                             </div>
                           )}
 
-                          {/* Boutons de vote */}
-                          <div className="flex gap-1 mb-2">
-                            <button onClick={() => castVote(video.id, 'a_terminer')}
-                              className={`flex-1 py-1.5 rounded text-xs font-medium transition-colors ${myVote === 'a_terminer' ? 'bg-orange-500 text-white' : 'bg-orange-50 text-orange-600 hover:bg-orange-100'}`}>
-                              🔧 À terminer
-                            </button>
-                            <button onClick={() => castVote(video.id, 'pad')}
-                              className={`flex-1 py-1.5 rounded text-xs font-medium transition-colors ${myVote === 'pad' ? 'bg-green-500 text-white' : 'bg-green-50 text-green-600 hover:bg-green-100'}`}>
-                              ✅ PAD
-                            </button>
-                            {myVote && (
-                              <button onClick={() => castVote(video.id, null)} className="px-2 py-1.5 rounded text-xs bg-gray-100 text-gray-400 hover:bg-gray-200" title="Effacer mon vote">✕</button>
-                            )}
-                          </div>
+                          {/* Action selon statut */}
+                          {vs === 'En attente' && (
+                            <div className="flex gap-1 mb-2">
+                              <button onClick={() => castVote(video.id, myVote === 'oui' ? null : 'oui')}
+                                className={`flex-1 py-1.5 rounded-lg text-xs font-medium border ${myVote === 'oui' ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-700 border-gray-200'}`}>
+                                Oui
+                              </button>
+                              <button onClick={() => castVote(video.id, myVote === 'non' ? null : 'non')}
+                                className={`flex-1 py-1.5 rounded-lg text-xs font-medium border ${myVote === 'non' ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-700 border-gray-200'}`}>
+                                Non
+                              </button>
+                            </div>
+                          )}
+                          {vs === 'À terminer' && isReferent && (
+                            <button onClick={() => markAsPad(video.id)} className="w-full py-1.5 rounded-lg text-xs font-medium bg-gray-900 text-white mb-2">Marquer PAD</button>
+                          )}
+                          {vs === 'PAD' && isReferent && (
+                            <button onClick={() => unmarkAsPad(video.id)} className="w-full py-1.5 rounded-lg text-xs text-gray-500 border border-gray-200 mb-2">Annuler PAD</button>
+                          )}
 
-                          {/* Référent */}
-                          <div className="flex items-center justify-between text-xs mb-2">
-                            {video.referent ? (
-                              <span className="text-purple-600 font-medium truncate">🎯 {video.referent}</span>
-                            ) : (
-                              <span className="text-gray-400 italic">Pas de référent</span>
-                            )}
-                            {video.referent === currentUser ? (
-                              <button onClick={() => releaseReferent(video.id)} className="text-red-400 hover:text-red-600 ml-1 shrink-0">Libérer</button>
-                            ) : !video.referent ? (
-                              <button onClick={() => claimReferent(video.id)} className="text-blue-500 hover:text-blue-700 ml-1 shrink-0">Prendre</button>
-                            ) : null}
-                          </div>
-
-                          {/* Action links */}
-                          <div className="flex justify-between text-xs">
-                            <a href={video.file_url} download className="text-green-600">⬇ DL</a>
-                            <button onClick={() => deleteVideo(video.id)} className="text-red-600">🗑</button>
+                          <div className="flex justify-between text-xs text-gray-400 pt-1 border-t border-gray-100">
+                            <a href={video.file_url} download>Télécharger</a>
+                            <button onClick={() => deleteVideo(video.id)}>Supprimer</button>
                           </div>
                         </div>
                       </div>
@@ -977,7 +917,7 @@ export default function Home() {
                               <div className="flex gap-1 mt-1">
                                 {[['B', 'bertrand_vote'], ['S', 'sebastien_vote'], ['P', 'pierreemmanuel_vote']].map(([init, col]) => {
                                   const v = video[col]
-                                  return <span key={col} className={`text-xs px-1 rounded ${v === 'pad' ? 'text-green-600' : v === 'a_terminer' ? 'text-orange-600' : 'text-gray-300'}`}>{init}</span>
+                                  return <span key={col} className={`text-xs px-1 rounded ${v === 'oui' ? 'text-gray-900 font-bold' : v === 'non' ? 'text-gray-400 line-through' : 'text-gray-300'}`}>{init}{v === 'oui' ? '✓' : v === 'non' ? '✗' : ''}</span>
                                 })}
                               </div>
                             </td>
@@ -997,9 +937,24 @@ export default function Home() {
                             </td>
                             <td className="px-4 py-3">
                               <div className="flex gap-1">
-                                <button onClick={() => castVote(video.id, 'a_terminer')} className={`px-2 py-1 rounded text-xs ${myVoteRow === 'a_terminer' ? 'bg-orange-500 text-white' : 'bg-orange-50 text-orange-600 hover:bg-orange-100'}`}>🔧</button>
-                                <button onClick={() => castVote(video.id, 'pad')} className={`px-2 py-1 rounded text-xs ${myVoteRow === 'pad' ? 'bg-green-500 text-white' : 'bg-green-50 text-green-600 hover:bg-green-100'}`}>PAD</button>
-                                {myVoteRow && <button onClick={() => castVote(video.id, null)} className="px-1 py-1 rounded text-xs bg-gray-100 text-gray-400">✕</button>}
+                                {rowStatus === 'En attente' && (
+                                  <>
+                                    <button onClick={() => castVote(video.id, myVoteRow === 'oui' ? null : 'oui')}
+                                      className={`px-2 py-1 rounded text-xs border ${myVoteRow === 'oui' ? 'bg-gray-900 text-white border-gray-900' : 'border-gray-200 text-gray-600'}`}>
+                                      Oui
+                                    </button>
+                                    <button onClick={() => castVote(video.id, myVoteRow === 'non' ? null : 'non')}
+                                      className={`px-2 py-1 rounded text-xs border ${myVoteRow === 'non' ? 'bg-gray-900 text-white border-gray-900' : 'border-gray-200 text-gray-600'}`}>
+                                      Non
+                                    </button>
+                                  </>
+                                )}
+                                {rowStatus === 'À terminer' && video.referent === currentUser && (
+                                  <button onClick={() => markAsPad(video.id)} className="px-2 py-1 rounded text-xs bg-gray-900 text-white">PAD</button>
+                                )}
+                                {rowStatus === 'PAD' && video.referent === currentUser && (
+                                  <button onClick={() => unmarkAsPad(video.id)} className="px-2 py-1 rounded text-xs border border-gray-200 text-gray-500">Annuler</button>
+                                )}
                               </div>
                             </td>
                             <td className="px-4 py-3 text-sm space-x-2">
@@ -1099,94 +1054,111 @@ export default function Home() {
             </div>
           )}
 
-          {currentSection === 'validated' && (
-            <div>
-              <h2 className="text-2xl md:text-3xl font-bold text-gray-900 mb-1">✅ PAD — Prêt À Diffuser</h2>
-              <p className="text-gray-500 text-sm mb-4">Vidéos où les 3 membres ont voté PAD.</p>
-              {allValidatedVideos.length === 0 ? (
-                <div className="text-center py-12 text-gray-500">Aucune vidéo PAD pour l'instant</div>
-              ) : (
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-3 md:gap-6">
-                  {allValidatedVideos.map((video) => (
-                    <div key={video.id} className="bg-white rounded-xl overflow-hidden shadow-sm border-2 border-green-500 cursor-pointer" onClick={() => router.push(`/video/${video.id}`)}>
-                      <div className="bg-green-500 text-white text-center py-1 text-xs font-medium">✅ PAD</div>
-                      <video src={video.file_url} preload="metadata" className="w-full aspect-video bg-gray-900" muted />
-                      <div className="p-2 md:p-4">
-                        <h3 className="font-semibold text-sm md:text-base truncate">{video.title}</h3>
-                        {video.referent && <p className="text-xs text-purple-600 mt-1">🎯 {video.referent}</p>}
-                        <div className="flex justify-between text-xs mt-2">
-                          <a href={video.file_url} download onClick={(e) => e.stopPropagation()} className="text-green-600">⬇ DL</a>
+          {(['en-attente', 'a-terminer', 'a-supprimer', 'pad'].includes(currentSection)) && (() => {
+            const meta = {
+              'en-attente':   { title: 'En attente', desc: 'Votez Oui ou Non. Quand les 3 votent Oui, la vidéo passe en "À terminer".' },
+              'a-terminer':   { title: 'À terminer', desc: 'Les 3 ont voté Oui. La prise en charge peut la marquer PAD quand elle est prête.' },
+              'a-supprimer':  { title: 'À supprimer', desc: 'Au moins un Non a été voté. À discuter ou supprimer.' },
+              'pad':          { title: 'PAD — Prêt à diffuser', desc: 'Vidéos déclarées prêtes par la prise en charge.' }
+            }
+            const sl = currentSection === 'en-attente' ? 'En attente' : currentSection === 'a-terminer' ? 'À terminer' : currentSection === 'a-supprimer' ? 'À supprimer' : 'PAD'
+            const sectionVideos = videos.filter(v => getVideoStatus(v) === sl)
+            const { title, desc } = meta[currentSection]
+
+            // Carte commune Apple-style
+            const renderCard = (video) => {
+              const myVote = currentUser ? video[userToVoteColumn[currentUser]] : null
+              const isReferent = video.referent === currentUser
+              const commentCount = commentCounts[video.id] || 0
+              return (
+                <div key={video.id} className="bg-white rounded-2xl overflow-hidden shadow-sm border border-gray-100">
+                  <div className="relative cursor-pointer" onClick={() => router.push(`/video/${video.id}`)}>
+                    <video src={video.file_url} preload="metadata" className="w-full aspect-video bg-gray-900" muted />
+                  </div>
+                  <div className="p-3">
+                    <div className="flex items-start justify-between mb-1">
+                      <h3 className="font-semibold text-sm leading-tight flex-1 pr-2 truncate">{video.title}</h3>
+                      {video.referent && <span className="text-xs text-gray-400 shrink-0 truncate max-w-[80px]">{video.referent.split(' ')[0]}</span>}
+                    </div>
+
+                    {/* Votes */}
+                    <div className="flex gap-1 mb-2">
+                      {[['B','bertrand_vote'],['S','sebastien_vote'],['P','pierreemmanuel_vote']].map(([init, col]) => {
+                        const v = video[col]
+                        return (
+                          <span key={col} className={`px-1.5 py-0.5 rounded text-xs font-medium ${v === 'oui' ? 'bg-gray-900 text-white' : v === 'non' ? 'bg-gray-100 text-gray-400 line-through' : 'bg-gray-100 text-gray-400'}`}>
+                            {init}{v === 'oui' ? '✓' : v === 'non' ? '✗' : ''}
+                          </span>
+                        )
+                      })}
+                      <button onClick={() => toggleComments(video.id)}
+                        className={`ml-auto text-xs px-1.5 py-0.5 rounded ${expandedComments === video.id ? 'bg-gray-900 text-white' : commentCount > 0 ? 'bg-gray-100 text-gray-600' : 'bg-gray-50 text-gray-400'}`}>
+                        {commentCount > 0 ? commentCount : '+'} 💬
+                      </button>
+                    </div>
+
+                    {/* Commentaires inline */}
+                    {expandedComments === video.id && (
+                      <div className="mb-2 rounded-xl border border-gray-100 p-2 bg-gray-50">
+                        <div className="space-y-1 mb-2 max-h-24 overflow-y-auto">
+                          {(videoComments[video.id] || []).length === 0
+                            ? <p className="text-xs text-gray-400">Aucun commentaire</p>
+                            : (videoComments[video.id] || []).map(c => (
+                              <div key={c.id} className="text-xs">
+                                <span className="font-medium mr-1 text-gray-700">{c.user_id?.split(' ')[0]}</span>
+                                <span className="text-gray-500">{c.text}</span>
+                              </div>
+                            ))}
+                        </div>
+                        <div className="flex gap-1">
+                          <input type="text" value={newComment} onChange={e => setNewComment(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') addQuickComment(video.id) }} placeholder="Commenter..." className="flex-1 text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white" />
+                          <button onClick={() => addQuickComment(video.id)} className="text-xs bg-gray-900 text-white px-2 py-1 rounded-lg">→</button>
                         </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
+                    )}
 
-          {(['en-attente', 'a-terminer', 'pad'].includes(currentSection)) && (() => {
-            const statusMap = {
-              'en-attente': { label: '⏳ En attente de validation', color: 'gray', desc: 'Vidéos en cours de review — personne n\'a encore voté.', ring: 'ring-gray-300', badge: 'bg-gray-500' },
-              'a-terminer': { label: '🔧 À terminer', color: 'orange', desc: 'Au moins un membre a voté "À terminer" — il reste du travail technique.', ring: 'ring-orange-400', badge: 'bg-orange-500' },
-              'pad': { label: '✅ PAD — Prêt À Diffuser', color: 'green', desc: 'Les 3 membres ont voté PAD — prêt à publier.', ring: 'ring-green-500', badge: 'bg-green-500' }
+                    {/* Action */}
+                    {sl === 'En attente' && (
+                      <div className="flex gap-1 mb-2">
+                        <button onClick={() => castVote(video.id, myVote === 'oui' ? null : 'oui')}
+                          className={`flex-1 py-1.5 rounded-lg text-xs font-medium border ${myVote === 'oui' ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-700 border-gray-200'}`}>
+                          Oui
+                        </button>
+                        <button onClick={() => castVote(video.id, myVote === 'non' ? null : 'non')}
+                          className={`flex-1 py-1.5 rounded-lg text-xs font-medium border ${myVote === 'non' ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-700 border-gray-200'}`}>
+                          Non
+                        </button>
+                      </div>
+                    )}
+                    {sl === 'À terminer' && isReferent && (
+                      <button onClick={() => markAsPad(video.id)} className="w-full py-1.5 rounded-lg text-xs font-medium bg-gray-900 text-white mb-2">Marquer PAD</button>
+                    )}
+                    {sl === 'PAD' && isReferent && (
+                      <button onClick={() => unmarkAsPad(video.id)} className="w-full py-1.5 rounded-lg text-xs text-gray-500 border border-gray-200 mb-2">Annuler PAD</button>
+                    )}
+                    {sl === 'À supprimer' && (
+                      <button onClick={() => deleteVideo(video.id)} className="w-full py-1.5 rounded-lg text-xs text-gray-500 border border-gray-200 mb-2">Supprimer</button>
+                    )}
+
+                    <div className="flex justify-between text-xs text-gray-400 pt-1 border-t border-gray-100">
+                      <a href={video.file_url} download>Télécharger</a>
+                    </div>
+                  </div>
+                </div>
+              )
             }
-            const { label, desc, ring, badge } = statusMap[currentSection]
-            const statusLabel = currentSection === 'en-attente' ? 'En attente' : currentSection === 'a-terminer' ? 'À terminer' : 'PAD'
-            const sectionVideos = videos.filter(v => getVideoStatus(v) === statusLabel)
+
             return (
               <div>
                 <div className="mb-6">
-                  <h2 className="text-2xl md:text-3xl font-bold text-gray-900 mb-1">{label}</h2>
-                  <p className="text-gray-500 text-sm">{desc}</p>
+                  <h2 className="text-2xl font-semibold text-gray-900 mb-1">{title}</h2>
+                  <p className="text-gray-400 text-sm">{desc}</p>
                 </div>
                 {sectionVideos.length === 0 ? (
-                  <div className="text-center py-12 text-gray-400">Aucune vidéo dans cette catégorie</div>
+                  <div className="text-center py-16 text-gray-300 text-sm">Aucune vidéo</div>
                 ) : (
-                  <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-6">
-                    {sectionVideos.map((video) => {
-                      const myVote = currentUser ? video[userToVoteColumn[currentUser]] : null
-                      const commentCount = commentCounts[video.id] || 0
-                      return (
-                        <div key={video.id} className={`bg-white rounded-xl overflow-hidden shadow-sm ring-2 ${ring}`}>
-                          <div className={`${badge} text-white text-center py-1 text-xs font-medium`}>{statusLabel}</div>
-                          <div className="relative cursor-pointer" onClick={() => router.push(`/video/${video.id}`)}>
-                            <video src={video.file_url} preload="metadata" className="w-full aspect-video bg-gray-900" muted />
-                          </div>
-                          <div className="p-2 md:p-4">
-                            <h3 className="font-semibold text-sm md:text-base truncate mb-1">{video.title}</h3>
-                            {video.referent && <p className="text-xs text-purple-600 mb-2">🎯 {video.referent}</p>}
-                            {/* Votes des 3 */}
-                            <div className="flex gap-1 mb-2">
-                              {[['B', 'bertrand_vote'], ['S', 'sebastien_vote'], ['P', 'pierreemmanuel_vote']].map(([init, col]) => {
-                                const v = video[col]
-                                return <span key={col} className={`px-1.5 py-0.5 rounded text-xs font-bold ${v === 'pad' ? 'bg-green-100 text-green-700' : v === 'a_terminer' ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-400'}`}>{init}{v === 'pad' ? '✅' : v === 'a_terminer' ? '🔧' : ''}</span>
-                              })}
-                              <button onClick={() => toggleComments(video.id)} className={`ml-auto text-xs px-1.5 py-0.5 rounded ${expandedComments === video.id ? 'bg-yellow-300 text-yellow-900' : commentCount > 0 ? 'bg-yellow-100 text-yellow-800' : 'bg-gray-100 text-gray-500'}`}>💬{commentCount > 0 ? commentCount : '+'}</button>
-                            </div>
-                            {expandedComments === video.id && (
-                              <div className="mb-2 border border-yellow-100 rounded-lg p-2 bg-yellow-50">
-                                <div className="space-y-1 mb-2 max-h-24 overflow-y-auto">
-                                  {(videoComments[video.id] || []).length === 0 ? <p className="text-xs text-gray-400 italic">Aucun commentaire</p> : (videoComments[video.id] || []).map(c => (
-                                    <div key={c.id} className="text-xs"><span className={`font-semibold mr-1 ${c.user_id === 'Bertrand' ? 'text-blue-600' : c.user_id === 'Sébastien' ? 'text-green-600' : 'text-purple-600'}`}>{c.user_id?.split(' ')[0]}</span><span className="text-gray-700">{c.text}</span></div>
-                                  ))}
-                                </div>
-                                <div className="flex gap-1"><input type="text" value={newComment} onChange={(e) => setNewComment(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') addQuickComment(video.id) }} placeholder="Commenter..." className="flex-1 text-xs border rounded px-2 py-1 bg-white" /><button onClick={() => addQuickComment(video.id)} className="text-xs bg-blue-600 text-white px-2 py-1 rounded">→</button></div>
-                              </div>
-                            )}
-                            <div className="flex gap-1 mb-2">
-                              <button onClick={() => castVote(video.id, 'a_terminer')} className={`flex-1 py-1.5 rounded text-xs font-medium ${myVote === 'a_terminer' ? 'bg-orange-500 text-white' : 'bg-orange-50 text-orange-600 hover:bg-orange-100'}`}>🔧 À terminer</button>
-                              <button onClick={() => castVote(video.id, 'pad')} className={`flex-1 py-1.5 rounded text-xs font-medium ${myVote === 'pad' ? 'bg-green-500 text-white' : 'bg-green-50 text-green-600 hover:bg-green-100'}`}>✅ PAD</button>
-                              {myVote && <button onClick={() => castVote(video.id, null)} className="px-2 py-1.5 rounded text-xs bg-gray-100 text-gray-400">✕</button>}
-                            </div>
-                            <div className="flex justify-between text-xs">
-                              <a href={video.file_url} download className="text-green-600">⬇ DL</a>
-                              <button onClick={() => deleteVideo(video.id)} className="text-red-600">🗑</button>
-                            </div>
-                          </div>
-                        </div>
-                      )
-                    })}
+                  <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
+                    {sectionVideos.map(renderCard)}
                   </div>
                 )}
               </div>
@@ -1195,110 +1167,76 @@ export default function Home() {
 
           {currentSection === 'mes-videos' && (() => {
             const myVideos = videos.filter(v => v.referent === currentUser)
+            const renderMyCard = (video) => {
+              const myVote = currentUser ? video[userToVoteColumn[currentUser]] : null
+              const vs = getVideoStatus(video)
+              const commentCount = commentCounts[video.id] || 0
+              return (
+                <div key={video.id} className="bg-white rounded-2xl overflow-hidden shadow-sm border border-gray-100">
+                  <div className="relative cursor-pointer" onClick={() => router.push(`/video/${video.id}`)}>
+                    <video src={video.file_url} preload="metadata" className="w-full aspect-video bg-gray-900" muted />
+                  </div>
+                  <div className="p-3">
+                    <div className="flex items-start justify-between mb-1">
+                      <h3 className="font-semibold text-sm leading-tight flex-1 pr-2 truncate">{video.title}</h3>
+                      <span className="text-xs text-gray-400 shrink-0">{vs}</span>
+                    </div>
+                    <div className="flex gap-1 mb-2">
+                      {[['B','bertrand_vote'],['S','sebastien_vote'],['P','pierreemmanuel_vote']].map(([init, col]) => {
+                        const v = video[col]
+                        return <span key={col} className={`px-1.5 py-0.5 rounded text-xs font-medium ${v === 'oui' ? 'bg-gray-900 text-white' : v === 'non' ? 'bg-gray-100 text-gray-400 line-through' : 'bg-gray-100 text-gray-400'}`}>{init}{v === 'oui' ? '✓' : v === 'non' ? '✗' : ''}</span>
+                      })}
+                      <button onClick={() => toggleComments(video.id)} className={`ml-auto text-xs px-1.5 py-0.5 rounded ${expandedComments === video.id ? 'bg-gray-900 text-white' : commentCount > 0 ? 'bg-gray-100 text-gray-600' : 'bg-gray-50 text-gray-400'}`}>
+                        {commentCount > 0 ? commentCount : '+'} 💬
+                      </button>
+                    </div>
+                    {expandedComments === video.id && (
+                      <div className="mb-2 rounded-xl border border-gray-100 p-2 bg-gray-50">
+                        <div className="space-y-1 mb-2 max-h-24 overflow-y-auto">
+                          {(videoComments[video.id] || []).length === 0 ? <p className="text-xs text-gray-400">Aucun commentaire</p> : (videoComments[video.id] || []).map(c => (
+                            <div key={c.id} className="text-xs"><span className="font-medium mr-1 text-gray-700">{c.user_id?.split(' ')[0]}</span><span className="text-gray-500">{c.text}</span></div>
+                          ))}
+                        </div>
+                        <div className="flex gap-1">
+                          <input type="text" value={newComment} onChange={e => setNewComment(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') addQuickComment(video.id) }} placeholder="Commenter..." className="flex-1 text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white" />
+                          <button onClick={() => addQuickComment(video.id)} className="text-xs bg-gray-900 text-white px-2 py-1 rounded-lg">→</button>
+                        </div>
+                      </div>
+                    )}
+                    {vs === 'En attente' && (
+                      <div className="flex gap-1 mb-2">
+                        <button onClick={() => castVote(video.id, myVote === 'oui' ? null : 'oui')} className={`flex-1 py-1.5 rounded-lg text-xs font-medium border ${myVote === 'oui' ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-700 border-gray-200'}`}>Oui</button>
+                        <button onClick={() => castVote(video.id, myVote === 'non' ? null : 'non')} className={`flex-1 py-1.5 rounded-lg text-xs font-medium border ${myVote === 'non' ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-700 border-gray-200'}`}>Non</button>
+                      </div>
+                    )}
+                    {vs === 'À terminer' && (
+                      <button onClick={() => markAsPad(video.id)} className="w-full py-1.5 rounded-lg text-xs font-medium bg-gray-900 text-white mb-2">Marquer PAD</button>
+                    )}
+                    {vs === 'PAD' && (
+                      <button onClick={() => unmarkAsPad(video.id)} className="w-full py-1.5 rounded-lg text-xs text-gray-500 border border-gray-200 mb-2">Annuler PAD</button>
+                    )}
+                    <div className="flex justify-between text-xs text-gray-400 pt-1 border-t border-gray-100">
+                      <a href={video.file_url} download>Télécharger</a>
+                      <button onClick={() => releaseReferent(video.id)} className="text-gray-400">Libérer</button>
+                    </div>
+                  </div>
+                </div>
+              )
+            }
             return (
               <div>
                 <div className="mb-6">
-                  <h2 className="text-2xl md:text-3xl font-bold text-gray-900 mb-1">🎯 Mes vidéos à modifier</h2>
-                  <p className="text-gray-500 text-sm">Vidéos dont vous êtes référent — celles que vous avez prises en charge.</p>
+                  <h2 className="text-2xl font-semibold text-gray-900 mb-1">Mes vidéos</h2>
+                  <p className="text-gray-400 text-sm">Vidéos dont vous avez la prise en charge.</p>
                 </div>
-
                 {myVideos.length === 0 ? (
-                  <div className="bg-white rounded-2xl p-10 text-center shadow-sm">
-                    <div className="text-4xl mb-3">🎬</div>
-                    <p className="text-gray-500 mb-2">Vous n'êtes référent d'aucune vidéo pour l'instant.</p>
-                    <p className="text-gray-400 text-sm">Allez dans "Vidéos" et cliquez sur "Prendre" sur les vidéos dont vous souhaitez vous occuper.</p>
+                  <div className="bg-white rounded-2xl p-10 text-center border border-gray-100">
+                    <p className="text-gray-400 text-sm">Aucune vidéo en prise en charge.</p>
+                    <p className="text-gray-300 text-xs mt-1">Les vidéos que vous uploadez vous sont automatiquement attribuées.</p>
                   </div>
-                ) : (() => {
-                  const enAttenteVideos = myVideos.filter(v => getVideoStatus(v) === 'En attente')
-                  const aTerminerVideos = myVideos.filter(v => getVideoStatus(v) === 'À terminer')
-                  const padVideos = myVideos.filter(v => getVideoStatus(v) === 'PAD')
-
-                  const renderMyVideoCard = (video) => {
-                    const myField = userToColumn[currentUser]
-                    const myApproval = video[myField]
-                    const allApproved = video.bertrand_approved && video.sebastien_approved && video.pierreemmanuel_approved
-                    const commentCount = commentCounts[video.id] || 0
-                    return (
-                      <div key={video.id} className={`bg-white rounded-xl overflow-hidden shadow-sm border-2 ${allApproved ? 'border-green-400' : 'border-purple-200'}`}>
-                        <div className="relative cursor-pointer" onClick={() => router.push(`/video/${video.id}`)}>
-                          {allApproved && <div className="absolute top-1 right-1 z-10 bg-green-500 text-white text-xs px-1.5 py-0.5 rounded-full">✅</div>}
-                          <video src={video.file_url} preload="metadata" className="w-full aspect-video bg-gray-900" muted />
-                        </div>
-                        <div className="p-3 md:p-4">
-                          <h3 className="font-semibold text-sm md:text-base truncate mb-2">{video.title}</h3>
-                          {video.video_types?.name && (
-                            <span className="inline-block text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full mb-2">{video.video_types.name}</span>
-                          )}
-                          <div className="flex gap-1 mb-3">
-                            <span className={`px-2 py-0.5 rounded text-xs ${video.bertrand_approved ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'}`}>B</span>
-                            <span className={`px-2 py-0.5 rounded text-xs ${video.sebastien_approved ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'}`}>S</span>
-                            <span className={`px-2 py-0.5 rounded text-xs ${video.pierreemmanuel_approved ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'}`}>P</span>
-                            {commentCount > 0 && (
-                              <button onClick={() => toggleComments(video.id)} className={`text-xs px-1.5 py-0.5 rounded ml-auto ${expandedComments === video.id ? 'bg-yellow-300 text-yellow-900' : 'bg-yellow-100 text-yellow-800 hover:bg-yellow-200'}`}>
-                                💬{commentCount}
-                              </button>
-                            )}
-                          </div>
-                          {expandedComments === video.id && (
-                            <div className="mb-2 border border-yellow-100 rounded-lg p-2 bg-yellow-50">
-                              <div className="space-y-1 mb-2 max-h-24 overflow-y-auto">
-                                {(videoComments[video.id] || []).map(c => (
-                                  <div key={c.id} className="text-xs">
-                                    <span className={`font-semibold mr-1 ${c.user_id === 'Bertrand' ? 'text-blue-600' : c.user_id === 'Sébastien' ? 'text-green-600' : 'text-purple-600'}`}>{c.user_id?.split(' ')[0]}</span>
-                                    <span className="text-gray-700">{c.text}</span>
-                                  </div>
-                                ))}
-                              </div>
-                              <div className="flex gap-1">
-                                <input type="text" value={newComment} onChange={(e) => setNewComment(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') addQuickComment(video.id) }} placeholder="Commenter..." className="flex-1 text-xs border rounded px-2 py-1 bg-white" />
-                                <button onClick={() => addQuickComment(video.id)} className="text-xs bg-blue-600 text-white px-2 py-1 rounded">→</button>
-                              </div>
-                            </div>
-                          )}
-                          <div className="flex gap-2">
-                            <button onClick={() => router.push(`/video/${video.id}`)} className="flex-1 py-2 rounded-lg text-xs bg-blue-50 text-blue-600 font-medium">Ouvrir</button>
-                            <button onClick={() => toggleMyApproval(video.id)} className={`flex-1 py-2 rounded-lg text-xs font-medium ${myApproval ? 'bg-green-500 text-white' : 'bg-gray-100'}`}>
-                              {myApproval ? '✓ Validée' : 'Valider'}
-                            </button>
-                            <button onClick={() => releaseReferent(video.id)} className="py-2 px-2 rounded-lg text-xs bg-red-50 text-red-500 font-medium" title="Libérer la vidéo">✕</button>
-                          </div>
-                        </div>
-                      </div>
-                    )
-                  }
-
-                  return (
-                    <div className="space-y-8">
-                      {enAttenteVideos.length > 0 && (
-                        <div>
-                          <h3 className="text-lg font-semibold text-gray-700 mb-3 flex items-center gap-2">
-                            <span className="w-3 h-3 rounded-full bg-gray-400 inline-block"></span>
-                            En attente de validation <span className="text-gray-400 font-normal text-sm">({enAttenteVideos.length})</span>
-                          </h3>
-                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">{enAttenteVideos.map(renderMyVideoCard)}</div>
-                        </div>
-                      )}
-                      {aTerminerVideos.length > 0 && (
-                        <div>
-                          <h3 className="text-lg font-semibold text-gray-700 mb-3 flex items-center gap-2">
-                            <span className="w-3 h-3 rounded-full bg-orange-500 inline-block"></span>
-                            🔧 À terminer <span className="text-gray-400 font-normal text-sm">({aTerminerVideos.length})</span>
-                          </h3>
-                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">{aTerminerVideos.map(renderMyVideoCard)}</div>
-                        </div>
-                      )}
-                      {padVideos.length > 0 && (
-                        <div>
-                          <h3 className="text-lg font-semibold text-gray-700 mb-3 flex items-center gap-2">
-                            <span className="w-3 h-3 rounded-full bg-green-500 inline-block"></span>
-                            ✅ PAD — Prêt À Diffuser <span className="text-gray-400 font-normal text-sm">({padVideos.length})</span>
-                          </h3>
-                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">{padVideos.map(renderMyVideoCard)}</div>
-                        </div>
-                      )}
-                    </div>
-                  )
-                })()}
+                ) : (
+                  <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">{myVideos.map(renderMyCard)}</div>
+                )}
               </div>
             )
           })()}
