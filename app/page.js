@@ -730,9 +730,12 @@ export default function Home() {
         <nav className="hidden md:block w-64 bg-white border-r fixed left-0 top-[65px] bottom-0 overflow-y-auto">
           <ul className="p-4 space-y-2">
             {[
-              {id:'videos', icon:'🎬', label:'Vidéos'},
+              {id:'videos', icon:'🎬', label:'Toutes les vidéos'},
+              {id:'en-attente', icon:'⏳', label:`En attente (${enAttenteCount})`},
+              {id:'a-terminer', icon:'🔧', label:`À terminer (${aTerminerCount})`},
+              {id:'pad', icon:'✅', label:`PAD (${padCount})`},
+              {id:'mes-videos', icon:'🎯', label:'Mes vidéos'},
               {id:'comments', icon:'💬', label:`Commentaires (${allComments.length})`},
-              {id:'validated', icon:'✅', label:`Validées (${allValidatedVideos.length})`},
               {id:'tasks', icon:'📋', label:'Tâches'},
               {id:'ideas', icon:'💡', label:'Idées'},
               {id:'contacts', icon:'👥', label:'Contacts'},
