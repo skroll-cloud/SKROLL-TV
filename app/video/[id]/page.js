@@ -137,6 +137,18 @@ export default function VideoPage({ params }) {
     loadComments(video.id)
   }
 
+  async function claimReferent() {
+    if (!video || !currentUser) return
+    await supabase.from('videos').update({ referent: currentUser }).eq('id', video.id)
+    loadAllVideos()
+  }
+
+  async function releaseReferent() {
+    if (!video) return
+    await supabase.from('videos').update({ referent: null }).eq('id', video.id)
+    loadAllVideos()
+  }
+
   async function toggleMyApproval() {
     if (!video || !currentUser) return
     const field = userToColumn[currentUser]
@@ -308,6 +320,33 @@ export default function VideoPage({ params }) {
               <span className={`px-3 py-2 rounded-full text-sm ${video.pierreemmanuel_approved ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-400'}`}>
                 Pierre E. {video.pierreemmanuel_approved ? '✓' : ''}
               </span>
+            </div>
+          </div>
+
+          {/* Référent */}
+          <div className="mb-6 bg-white rounded-xl p-4 shadow-sm">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="font-semibold mb-1">🎯 Référent modifications</h2>
+                {video.referent ? (
+                  <p className="text-purple-600 font-medium">{video.referent}</p>
+                ) : (
+                  <p className="text-gray-400 text-sm italic">Aucun référent — cliquez pour vous l'approprier</p>
+                )}
+              </div>
+              <div>
+                {video.referent === currentUser ? (
+                  <button onClick={releaseReferent} className="px-4 py-2 bg-red-50 text-red-500 rounded-lg text-sm font-medium hover:bg-red-100">
+                    Libérer
+                  </button>
+                ) : !video.referent ? (
+                  <button onClick={claimReferent} className="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700">
+                    🙋 Prendre en charge
+                  </button>
+                ) : (
+                  <span className="text-xs text-gray-400 italic">Déjà pris</span>
+                )}
+              </div>
             </div>
           </div>
 

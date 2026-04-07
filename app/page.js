@@ -88,8 +88,8 @@ export default function Home() {
     if (saved) setCurrentUser(saved) 
   }, [])
   
-  useEffect(() => { 
-    if (currentUser) { 
+  useEffect(() => {
+    if (currentUser) {
       localStorage.setItem('skroll_user', currentUser)
       loadVideos()
       loadVideoTypes()
@@ -100,8 +100,20 @@ export default function Home() {
       loadCommentCounts()
       loadAudioCounts()
       loadAllComments()
-    } 
+    }
   }, [currentUser])
+
+  // Rafraîchir les commentaires et les vidéos à chaque changement de section
+  useEffect(() => {
+    if (!currentUser) return
+    if (currentSection === 'comments') {
+      loadAllComments()
+      loadCommentCounts()
+    }
+    if (currentSection === 'mes-videos') {
+      loadVideos()
+    }
+  }, [currentSection])
 
   // Swipe handlers
   const minSwipeDistance = 50
@@ -340,6 +352,16 @@ export default function Home() {
   }
   async function deleteFile(fileId) { if (!confirm('Supprimer ?')) return; await supabase.from('shared_files').delete().eq('id', fileId); loadSharedFiles() }
 
+  async function claimReferent(videoId) {
+    await supabase.from('videos').update({ referent: currentUser }).eq('id', videoId)
+    loadVideos()
+  }
+
+  async function releaseReferent(videoId) {
+    await supabase.from('videos').update({ referent: null }).eq('id', videoId)
+    loadVideos()
+  }
+
   function formatDate(dateStr) {
     const d = new Date(dateStr)
     const now = new Date()
@@ -455,6 +477,20 @@ export default function Home() {
             </button>
           </div>
           
+          {/* Référent */}
+          <div className="flex items-center justify-between text-sm mb-3 bg-gray-50 rounded-lg px-3 py-2">
+            {video.referent ? (
+              <span className="text-purple-600 font-medium">🎯 {video.referent}</span>
+            ) : (
+              <span className="text-gray-400 italic">Pas de référent</span>
+            )}
+            {video.referent === currentUser ? (
+              <button onClick={() => releaseReferent(video.id)} className="text-red-500 text-xs">Libérer</button>
+            ) : !video.referent ? (
+              <button onClick={() => claimReferent(video.id)} className="text-blue-500 text-xs font-medium">🙋 Prendre</button>
+            ) : null}
+          </div>
+
           {/* Links row */}
           <div className="flex justify-between text-sm">
             <button onClick={() => router.push(`/video/${video.id}`)} className="text-blue-600">🎬 Détails</button>
@@ -538,6 +574,7 @@ export default function Home() {
             <ul className="space-y-2">
               {[
                 {id:'videos', icon:'🎬', label:'Vidéos'},
+                {id:'mes-videos', icon:'🎯', label:'Mes vidéos'},
                 {id:'comments', icon:'💬', label:`Commentaires (${allComments.length})`},
                 {id:'validated', icon:'✅', label:`Validées (${allValidatedVideos.length})`},
                 {id:'tasks', icon:'📋', label:'Tâches'},
@@ -719,7 +756,21 @@ export default function Home() {
                           <button onClick={() => toggleMyApproval(video.id)} className={`w-full py-2 rounded-lg text-xs font-medium mb-2 ${myApproval ? 'bg-green-500 text-white' : 'bg-gray-100'}`}>
                             {myApproval ? '✓ Validée' : 'Valider'}
                           </button>
-                          
+
+                          {/* Référent */}
+                          <div className="flex items-center justify-between text-xs mb-2">
+                            {video.referent ? (
+                              <span className="text-purple-600 font-medium truncate">🎯 {video.referent}</span>
+                            ) : (
+                              <span className="text-gray-400 italic">Pas de référent</span>
+                            )}
+                            {video.referent === currentUser ? (
+                              <button onClick={() => releaseReferent(video.id)} className="text-red-400 hover:text-red-600 ml-1 shrink-0">Libérer</button>
+                            ) : !video.referent ? (
+                              <button onClick={() => claimReferent(video.id)} className="text-blue-500 hover:text-blue-700 ml-1 shrink-0">Prendre</button>
+                            ) : null}
+                          </div>
+
                           {/* Action links */}
                           <div className="flex justify-between text-xs">
                             <a href={video.file_url} download className="text-green-600">⬇ DL</a>
@@ -742,6 +793,7 @@ export default function Home() {
                         <th className="px-4 py-3 text-left text-sm">Type</th>
                         <th className="px-4 py-3 text-left text-sm">💬</th>
                         <th className="px-4 py-3 text-left text-sm">Validations</th>
+                        <th className="px-4 py-3 text-left text-sm">🎯 Référent</th>
                         <th className="px-4 py-3 text-left text-sm">Ma validation</th>
                         <th className="px-4 py-3 text-left text-sm">Actions</th>
                       </tr>
@@ -759,6 +811,20 @@ export default function Home() {
                               <span className={video.bertrand_approved ? 'text-green-600' : 'text-gray-400'}>B </span>
                               <span className={video.sebastien_approved ? 'text-green-600' : 'text-gray-400'}>S </span>
                               <span className={video.pierreemmanuel_approved ? 'text-green-600' : 'text-gray-400'}>P</span>
+                            </td>
+                            <td className="px-4 py-3 text-sm">
+                              <div className="flex items-center gap-2">
+                                {video.referent ? (
+                                  <span className="text-purple-600 font-medium">{video.referent}</span>
+                                ) : (
+                                  <span className="text-gray-400">—</span>
+                                )}
+                                {video.referent === currentUser ? (
+                                  <button onClick={() => releaseReferent(video.id)} className="text-xs text-red-400 hover:text-red-600">Libérer</button>
+                                ) : !video.referent ? (
+                                  <button onClick={() => claimReferent(video.id)} className="text-xs text-blue-500 hover:text-blue-700">Prendre</button>
+                                ) : null}
+                              </div>
                             </td>
                             <td className="px-4 py-3">
                               <button onClick={() => toggleMyApproval(video.id)} className={`px-3 py-1 rounded text-xs ${myApproval ? 'bg-green-100 text-green-800' : 'bg-gray-100'}`}>{myApproval ? '✓' : 'Valider'}</button>
@@ -883,6 +949,66 @@ export default function Home() {
               )}
             </div>
           )}
+
+          {currentSection === 'mes-videos' && (() => {
+            const myVideos = videos.filter(v => v.referent === currentUser)
+            return (
+              <div>
+                <div className="mb-6">
+                  <h2 className="text-2xl md:text-3xl font-bold text-gray-900 mb-1">🎯 Mes vidéos à modifier</h2>
+                  <p className="text-gray-500 text-sm">Vidéos dont vous êtes référent — celles que vous avez prises en charge.</p>
+                </div>
+
+                {myVideos.length === 0 ? (
+                  <div className="bg-white rounded-2xl p-10 text-center shadow-sm">
+                    <div className="text-4xl mb-3">🎬</div>
+                    <p className="text-gray-500 mb-2">Vous n'êtes référent d'aucune vidéo pour l'instant.</p>
+                    <p className="text-gray-400 text-sm">Allez dans "Vidéos" et cliquez sur "Prendre" sur les vidéos dont vous souhaitez vous occuper.</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
+                    {myVideos.map((video) => {
+                      const myField = userToColumn[currentUser]
+                      const myApproval = video[myField]
+                      const allApproved = video.bertrand_approved && video.sebastien_approved && video.pierreemmanuel_approved
+                      const commentCount = commentCounts[video.id] || 0
+
+                      return (
+                        <div key={video.id} className={`bg-white rounded-xl overflow-hidden shadow-sm border-2 ${allApproved ? 'border-green-400' : 'border-purple-200'}`}>
+                          <div className="relative cursor-pointer" onClick={() => router.push(`/video/${video.id}`)}>
+                            {allApproved && <div className="absolute top-1 right-1 z-10 bg-green-500 text-white text-xs px-1.5 py-0.5 rounded-full">✅</div>}
+                            <video src={video.file_url} preload="metadata" className="w-full aspect-video bg-gray-900" muted />
+                          </div>
+                          <div className="p-3 md:p-4">
+                            <h3 className="font-semibold text-sm md:text-base truncate mb-2">{video.title}</h3>
+
+                            {video.video_types?.name && (
+                              <span className="inline-block text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full mb-2">{video.video_types.name}</span>
+                            )}
+
+                            <div className="flex gap-1 mb-3">
+                              <span className={`px-2 py-0.5 rounded text-xs ${video.bertrand_approved ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'}`}>B</span>
+                              <span className={`px-2 py-0.5 rounded text-xs ${video.sebastien_approved ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'}`}>S</span>
+                              <span className={`px-2 py-0.5 rounded text-xs ${video.pierreemmanuel_approved ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'}`}>P</span>
+                              {commentCount > 0 && <span className="text-xs bg-yellow-100 text-yellow-800 px-1.5 py-0.5 rounded ml-auto">💬{commentCount}</span>}
+                            </div>
+
+                            <div className="flex gap-2">
+                              <button onClick={() => router.push(`/video/${video.id}`)} className="flex-1 py-2 rounded-lg text-xs bg-blue-50 text-blue-600 font-medium">Ouvrir</button>
+                              <button onClick={() => toggleMyApproval(video.id)} className={`flex-1 py-2 rounded-lg text-xs font-medium ${myApproval ? 'bg-green-500 text-white' : 'bg-gray-100'}`}>
+                                {myApproval ? '✓ Validée' : 'Valider'}
+                              </button>
+                              <button onClick={() => releaseReferent(video.id)} className="py-2 px-2 rounded-lg text-xs bg-red-50 text-red-500 font-medium" title="Libérer la vidéo">✕</button>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            )
+          })()}
 
           {currentSection === 'tasks' && (
             <div>
