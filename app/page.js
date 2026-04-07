@@ -505,6 +505,9 @@ export default function Home() {
 
   const toValidateCount = currentUser ? videos.filter(v => { const vc = userToVoteColumn[currentUser]; return !v[vc] }).length : 0
   const allValidatedVideos = videos.filter(v => getVideoStatus(v) === 'PAD')
+  const enAttenteCount = videos.filter(v => getVideoStatus(v) === 'En attente').length
+  const aTerminerCount = videos.filter(v => getVideoStatus(v) === 'À terminer').length
+  const padCount = videos.filter(v => getVideoStatus(v) === 'PAD').length
 
   // Mobile swipe view render
   const renderMobileSwipeView = () => {
@@ -678,10 +681,12 @@ export default function Home() {
             </div>
             <ul className="space-y-2">
               {[
-                {id:'videos', icon:'🎬', label:'Vidéos'},
+                {id:'videos', icon:'🎬', label:'Toutes les vidéos'},
+                {id:'en-attente', icon:'⏳', label:`En attente (${enAttenteCount})`},
+                {id:'a-terminer', icon:'🔧', label:`À terminer (${aTerminerCount})`},
+                {id:'pad', icon:'✅', label:`PAD (${padCount})`},
                 {id:'mes-videos', icon:'🎯', label:'Mes vidéos'},
                 {id:'comments', icon:'💬', label:`Commentaires (${allComments.length})`},
-                {id:'validated', icon:'✅', label:`Validées (${allValidatedVideos.length})`},
                 {id:'tasks', icon:'📋', label:'Tâches'},
                 {id:'ideas', icon:'💡', label:'Idées'},
                 {id:'contacts', icon:'👥', label:'Contacts'},
@@ -1116,6 +1121,74 @@ export default function Home() {
               )}
             </div>
           )}
+
+          {(['en-attente', 'a-terminer', 'pad'].includes(currentSection)) && (() => {
+            const statusMap = {
+              'en-attente': { label: '⏳ En attente de validation', color: 'gray', desc: 'Vidéos en cours de review — personne n\'a encore voté.', ring: 'ring-gray-300', badge: 'bg-gray-500' },
+              'a-terminer': { label: '🔧 À terminer', color: 'orange', desc: 'Au moins un membre a voté "À terminer" — il reste du travail technique.', ring: 'ring-orange-400', badge: 'bg-orange-500' },
+              'pad': { label: '✅ PAD — Prêt À Diffuser', color: 'green', desc: 'Les 3 membres ont voté PAD — prêt à publier.', ring: 'ring-green-500', badge: 'bg-green-500' }
+            }
+            const { label, desc, ring, badge } = statusMap[currentSection]
+            const statusLabel = currentSection === 'en-attente' ? 'En attente' : currentSection === 'a-terminer' ? 'À terminer' : 'PAD'
+            const sectionVideos = videos.filter(v => getVideoStatus(v) === statusLabel)
+            return (
+              <div>
+                <div className="mb-6">
+                  <h2 className="text-2xl md:text-3xl font-bold text-gray-900 mb-1">{label}</h2>
+                  <p className="text-gray-500 text-sm">{desc}</p>
+                </div>
+                {sectionVideos.length === 0 ? (
+                  <div className="text-center py-12 text-gray-400">Aucune vidéo dans cette catégorie</div>
+                ) : (
+                  <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-6">
+                    {sectionVideos.map((video) => {
+                      const myVote = currentUser ? video[userToVoteColumn[currentUser]] : null
+                      const commentCount = commentCounts[video.id] || 0
+                      return (
+                        <div key={video.id} className={`bg-white rounded-xl overflow-hidden shadow-sm ring-2 ${ring}`}>
+                          <div className={`${badge} text-white text-center py-1 text-xs font-medium`}>{statusLabel}</div>
+                          <div className="relative cursor-pointer" onClick={() => router.push(`/video/${video.id}`)}>
+                            <video src={video.file_url} preload="metadata" className="w-full aspect-video bg-gray-900" muted />
+                          </div>
+                          <div className="p-2 md:p-4">
+                            <h3 className="font-semibold text-sm md:text-base truncate mb-1">{video.title}</h3>
+                            {video.referent && <p className="text-xs text-purple-600 mb-2">🎯 {video.referent}</p>}
+                            {/* Votes des 3 */}
+                            <div className="flex gap-1 mb-2">
+                              {[['B', 'bertrand_vote'], ['S', 'sebastien_vote'], ['P', 'pierreemmanuel_vote']].map(([init, col]) => {
+                                const v = video[col]
+                                return <span key={col} className={`px-1.5 py-0.5 rounded text-xs font-bold ${v === 'pad' ? 'bg-green-100 text-green-700' : v === 'a_terminer' ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-400'}`}>{init}{v === 'pad' ? '✅' : v === 'a_terminer' ? '🔧' : ''}</span>
+                              })}
+                              <button onClick={() => toggleComments(video.id)} className={`ml-auto text-xs px-1.5 py-0.5 rounded ${expandedComments === video.id ? 'bg-yellow-300 text-yellow-900' : commentCount > 0 ? 'bg-yellow-100 text-yellow-800' : 'bg-gray-100 text-gray-500'}`}>💬{commentCount > 0 ? commentCount : '+'}</button>
+                            </div>
+                            {expandedComments === video.id && (
+                              <div className="mb-2 border border-yellow-100 rounded-lg p-2 bg-yellow-50">
+                                <div className="space-y-1 mb-2 max-h-24 overflow-y-auto">
+                                  {(videoComments[video.id] || []).length === 0 ? <p className="text-xs text-gray-400 italic">Aucun commentaire</p> : (videoComments[video.id] || []).map(c => (
+                                    <div key={c.id} className="text-xs"><span className={`font-semibold mr-1 ${c.user_id === 'Bertrand' ? 'text-blue-600' : c.user_id === 'Sébastien' ? 'text-green-600' : 'text-purple-600'}`}>{c.user_id?.split(' ')[0]}</span><span className="text-gray-700">{c.text}</span></div>
+                                  ))}
+                                </div>
+                                <div className="flex gap-1"><input type="text" value={newComment} onChange={(e) => setNewComment(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') addQuickComment(video.id) }} placeholder="Commenter..." className="flex-1 text-xs border rounded px-2 py-1 bg-white" /><button onClick={() => addQuickComment(video.id)} className="text-xs bg-blue-600 text-white px-2 py-1 rounded">→</button></div>
+                              </div>
+                            )}
+                            <div className="flex gap-1 mb-2">
+                              <button onClick={() => castVote(video.id, 'a_terminer')} className={`flex-1 py-1.5 rounded text-xs font-medium ${myVote === 'a_terminer' ? 'bg-orange-500 text-white' : 'bg-orange-50 text-orange-600 hover:bg-orange-100'}`}>🔧 À terminer</button>
+                              <button onClick={() => castVote(video.id, 'pad')} className={`flex-1 py-1.5 rounded text-xs font-medium ${myVote === 'pad' ? 'bg-green-500 text-white' : 'bg-green-50 text-green-600 hover:bg-green-100'}`}>✅ PAD</button>
+                              {myVote && <button onClick={() => castVote(video.id, null)} className="px-2 py-1.5 rounded text-xs bg-gray-100 text-gray-400">✕</button>}
+                            </div>
+                            <div className="flex justify-between text-xs">
+                              <a href={video.file_url} download className="text-green-600">⬇ DL</a>
+                              <button onClick={() => deleteVideo(video.id)} className="text-red-600">🗑</button>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            )
+          })()}
 
           {currentSection === 'mes-videos' && (() => {
             const myVideos = videos.filter(v => v.referent === currentUser)
