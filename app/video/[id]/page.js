@@ -277,212 +277,187 @@ export default function VideoPage({ params }) {
         ))}
       </div>
 
-      {/* Main content with swipe */}
-      <div 
-        className="max-w-4xl mx-auto"
-        onTouchStart={onTouchStart}
-        onTouchMove={onTouchMove}
-        onTouchEnd={onTouchEnd}
-        style={{
-          transform: `translateX(${swipeOffset}px)`,
-          transition: isAnimating ? 'transform 0.2s ease-out' : 'none'
-        }}
-      >
-        {/* Video player */}
-        <div className="relative bg-black">
-          <div className="absolute top-3 right-3 z-10 bg-black/50 text-white px-2.5 py-1 rounded-full text-xs font-medium">
-            {videoStatus}
-          </div>
-          <video
-            src={video.file_url}
-            controls
-            className="w-full max-h-[60vh] object-contain"
-            preload="metadata"
-          />
+      {/* Layout principal : flèches latérales + contenu centré */}
+      <div className="flex items-start max-w-6xl mx-auto">
+
+        {/* Flèche gauche */}
+        <div className="hidden md:flex flex-col items-center justify-start pt-12 w-32 shrink-0">
+          {prevVideo ? (
+            <button onClick={() => navigateToVideo(currentIndex - 1)} className="flex flex-col items-center gap-1 text-gray-400 hover:text-gray-700 transition-colors group px-2">
+              <span className="text-2xl group-hover:-translate-x-1 transition-transform">←</span>
+              <span className="text-xs text-center leading-tight max-w-[90px] line-clamp-2">{prevVideo.title}</span>
+            </button>
+          ) : <div className="w-20" />}
         </div>
 
-        {/* Swipe hint (mobile only) */}
-        <div className="md:hidden text-center py-2 text-gray-400 text-sm bg-gray-100">
-          ← Swipez pour changer de vidéo →
-        </div>
-
-        <div className="p-4 md:p-6">
-          {/* Title and type */}
-          <div className="mb-4">
-            <h1 className="text-2xl font-bold text-gray-900 mb-2">{video.title}</h1>
-            <div className="flex flex-wrap gap-2 items-center">
-              <select 
-                value={video.type_id || ''} 
-                onChange={(e) => updateVideoType(e.target.value)}
-                className="border rounded-lg px-3 py-1 text-sm"
-              >
-                <option value="">Sans type</option>
-                {videoTypes.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-              </select>
-              <span className="text-sm text-gray-500">
-                Uploadé par {video.uploaded_by} • {formatDate(video.uploaded_at)}
-              </span>
+        {/* Contenu principal */}
+        <div
+          className="flex-1 min-w-0"
+          onTouchStart={onTouchStart}
+          onTouchMove={onTouchMove}
+          onTouchEnd={onTouchEnd}
+          style={{
+            transform: `translateX(${swipeOffset}px)`,
+            transition: isAnimating ? 'transform 0.2s ease-out' : 'none'
+          }}
+        >
+          {/* Vidéo */}
+          <div className="relative bg-black">
+            <div className="absolute top-3 right-3 z-10 bg-black/50 text-white px-2.5 py-1 rounded-full text-xs font-medium">
+              {videoStatus}
             </div>
+            <video src={video.file_url} controls className="w-full max-h-[60vh] object-contain" preload="metadata" />
           </div>
 
-          {/* Vote / Statut */}
-          <div className="mb-6 bg-white rounded-2xl p-4 border border-gray-100">
-            <div className="flex flex-wrap gap-2 mb-4">
-              {[['Bertrand', 'bertrand_vote'], ['Sébastien', 'sebastien_vote'], ['Pierre E.', 'pierreemmanuel_vote']].map(([name, col]) => {
-                const v = video[col]
-                return (
-                  <span key={col} className={`px-3 py-1.5 rounded-full text-sm font-medium ${v === 'oui' ? 'bg-green-100 text-green-800' : v === 'non' ? 'bg-red-50 text-red-400 line-through' : 'bg-gray-100 text-gray-400'}`}>
-                    {name} {v === 'oui' ? '✓' : v === 'non' ? '✗' : ''}
-                  </span>
-                )
-              })}
-            </div>
+          <div className="md:hidden text-center py-2 text-gray-400 text-xs bg-gray-100">
+            Swipez pour changer de vidéo
+          </div>
 
-            {videoStatus === 'En attente' && (
-              <div className="flex gap-2">
-                <button onClick={() => castVote(myVote === 'oui' ? null : 'oui')}
-                  className={`flex-1 md:flex-none px-6 py-2.5 rounded-xl font-medium text-sm border ${myVote === 'oui' ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-700 border-gray-200'}`}>
-                  Oui
-                </button>
-                <button onClick={() => castVote(myVote === 'non' ? null : 'non')}
-                  className={`flex-1 md:flex-none px-6 py-2.5 rounded-xl font-medium text-sm border ${myVote === 'non' ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-700 border-gray-200'}`}>
-                  Non
-                </button>
+          <div className="p-4 md:p-6">
+            {/* Titre + type */}
+            <div className="mb-5">
+              <h1 className="text-xl font-bold text-gray-900 mb-1">{video.title}</h1>
+              <div className="flex flex-wrap gap-2 items-center">
+                <select value={video.type_id || ''} onChange={(e) => updateVideoType(e.target.value)} className="border rounded-lg px-3 py-1 text-sm">
+                  <option value="">Sans type</option>
+                  {videoTypes.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
+                <span className="text-sm text-gray-400">par {video.uploaded_by} · {formatDate(video.uploaded_at)}</span>
               </div>
-            )}
+            </div>
 
-            {videoStatus === 'À supprimer' && (
-              <p className="text-sm text-gray-500">Au moins un Non — à discuter avant de supprimer.</p>
-            )}
+            {/* Bloc validation : noms cliquables + prise en charge sur la même ligne */}
+            <div className="mb-5 bg-white rounded-2xl p-4 border border-gray-100">
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Noms cliquables — clic = toggle son propre vote */}
+                {[['Bertrand', 'bertrand_vote'], ['Sébastien', 'sebastien_vote'], ['Pierre E.', 'pierreemmanuel_vote']].map(([name, col]) => {
+                  const v = video[col]
+                  const isMe = (name === currentUser || (name === 'Pierre E.' && currentUser === 'Pierre Emmanuel'))
+                  return (
+                    <button
+                      key={col}
+                      onClick={() => isMe ? castVote(v === 'oui' ? null : 'oui') : undefined}
+                      className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors
+                        ${v === 'oui' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-400'}
+                        ${isMe ? 'cursor-pointer hover:opacity-80' : 'cursor-default'}`}
+                    >
+                      {name} {v === 'oui' ? '✓' : ''}
+                    </button>
+                  )
+                })}
 
-            {videoStatus === 'À terminer' && (
-              <div>
-                {video.referent === currentUser ? (
-                  <button onClick={markAsPad} className="px-6 py-2.5 rounded-xl font-medium text-sm bg-gray-900 text-white">
-                    Marquer PAD
-                  </button>
+                {/* Séparateur */}
+                <span className="text-gray-200 select-none mx-1">|</span>
+
+                {/* Prise en charge */}
+                <span className="text-xs text-gray-400 mr-1">En charge :</span>
+                {video.referent ? (
+                  <>
+                    <span className="text-sm font-medium text-gray-700">{video.referent}</span>
+                    {video.referent === currentUser && (
+                      <button onClick={releaseReferent} className="text-xs text-gray-400 border border-gray-200 px-2 py-0.5 rounded-lg ml-1">Libérer</button>
+                    )}
+                  </>
                 ) : (
-                  <p className="text-sm text-gray-400">
-                    {video.referent ? `La prise en charge (${video.referent}) peut marquer PAD.` : 'Aucune prise en charge.'}
-                  </p>
+                  <button onClick={claimReferent} className="text-xs bg-gray-900 text-white px-2.5 py-1 rounded-lg">Prendre</button>
                 )}
               </div>
-            )}
 
-            {videoStatus === 'PAD' && (
-              <div>
-                <p className="text-sm text-gray-500 mb-2">Prêt à diffuser.</p>
-                {video.referent === currentUser && (
+              {/* Actions selon statut */}
+              {videoStatus === 'À terminer' && video.referent === currentUser && (
+                <div className="mt-3 pt-3 border-t border-gray-100">
+                  <button onClick={markAsPad} className="px-5 py-2 rounded-xl font-medium text-sm bg-gray-900 text-white">Marquer PAD</button>
+                </div>
+              )}
+              {videoStatus === 'PAD' && video.referent === currentUser && (
+                <div className="mt-3 pt-3 border-t border-gray-100">
                   <button onClick={unmarkAsPad} className="text-sm text-gray-400 border border-gray-200 px-4 py-1.5 rounded-lg">Annuler PAD</button>
-                )}
-              </div>
-            )}
-          </div>
+                </div>
+              )}
+              {videoStatus === 'À terminer' && video.referent && video.referent !== currentUser && (
+                <p className="text-xs text-gray-400 mt-2">{video.referent} peut marquer PAD.</p>
+              )}
+            </div>
 
-          {/* Prise en charge */}
-          <div className="mb-6 bg-white rounded-2xl p-4 border border-gray-100">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs text-gray-400 mb-0.5">Prise en charge</p>
-                <p className="font-medium text-sm">{video.referent || '—'}</p>
-              </div>
-              <div>
-                {video.referent === currentUser ? (
-                  <button onClick={releaseReferent} className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm text-gray-500">Libérer</button>
-                ) : !video.referent ? (
-                  <button onClick={claimReferent} className="px-3 py-1.5 bg-gray-900 text-white rounded-lg text-sm">Prendre en charge</button>
-                ) : (
-                  <span className="text-xs text-gray-400">{video.referent}</span>
-                )}
+            {/* 2 — Commentaires */}
+            <div className="mb-5 bg-white rounded-2xl p-4 border border-gray-100">
+              <h2 className="font-semibold text-base mb-3">Commentaires {comments.length > 0 && <span className="text-gray-400 font-normal text-sm">({comments.length})</span>}</h2>
+              {comments.length > 0 && (
+                <div className="space-y-3 mb-4 max-h-80 overflow-y-auto">
+                  {comments.map(c => (
+                    <div key={c.id} className="flex gap-3">
+                      <div className={`w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0 ${c.user_id === 'Bertrand' ? 'bg-blue-400' : c.user_id === 'Sébastien' ? 'bg-emerald-400' : 'bg-violet-400'}`}>
+                        {c.user_id?.charAt(0)}
+                      </div>
+                      <div className="flex-1">
+                        <div className="flex items-baseline gap-2 mb-0.5">
+                          <span className="font-medium text-sm">{c.user_id}</span>
+                          <span className="text-gray-400 text-xs">{formatDate(c.created_at)}</span>
+                        </div>
+                        <p className="text-gray-700 text-sm">{c.text}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="flex gap-2">
+                <input type="text" value={newComment} onChange={e => setNewComment(e.target.value)} onKeyPress={e => e.key === 'Enter' && addComment()} placeholder="Commenter..." className="flex-1 border border-gray-200 rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-gray-300" />
+                <button onClick={addComment} className="bg-gray-900 text-white px-4 py-2 rounded-xl text-sm">Envoyer</button>
               </div>
             </div>
-          </div>
 
-          {/* Audio tracks */}
-          <div className="mb-6 bg-white rounded-xl p-4 shadow-sm">
-            <h2 className="font-semibold text-lg mb-3">🎵 Pistes audio ({audioTracks.length})</h2>
-            
-            {audioTracks.length > 0 && (
-              <div className="space-y-2 mb-4">
-                {audioTracks.map(track => (
-                  <div key={track.id} className="flex items-center justify-between bg-gray-50 rounded-lg p-3">
-                    <div>
-                      <p className="font-medium text-sm">{track.name}</p>
-                      <p className="text-xs text-gray-500">{track.track_type} • {track.uploaded_by}</p>
+            {/* 3 — Pistes audio */}
+            <div className="mb-5 bg-white rounded-2xl p-4 border border-gray-100">
+              <h2 className="font-semibold text-base mb-3">Pistes audio {audioTracks.length > 0 && <span className="text-gray-400 font-normal text-sm">({audioTracks.length})</span>}</h2>
+              {audioTracks.length > 0 && (
+                <div className="space-y-2 mb-3">
+                  {audioTracks.map(track => (
+                    <div key={track.id} className="flex items-center justify-between bg-gray-50 rounded-xl p-3">
+                      <div>
+                        <p className="font-medium text-sm">{track.name}</p>
+                        <p className="text-xs text-gray-400">{track.track_type} · {track.uploaded_by}</p>
+                      </div>
+                      <div className="flex gap-3">
+                        <a href={track.file_url} download className="text-gray-500 text-sm">⬇</a>
+                        <button onClick={() => deleteAudioTrack(track.id)} className="text-gray-400 text-sm">✕</button>
+                      </div>
                     </div>
-                    <div className="flex gap-2">
-                      <a href={track.file_url} download className="text-blue-600 text-sm">⬇</a>
-                      <button onClick={() => deleteAudioTrack(track.id)} className="text-red-500 text-sm">🗑</button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-            
-            <label className="block">
-              <div className="border-2 border-dashed border-gray-300 hover:border-blue-500 rounded-lg p-4 text-center cursor-pointer transition-colors">
-                <input type="file" accept="audio/*,.wav,.mp3,.aac,.edl,.xml" onChange={handleAudioUpload} disabled={uploadingAudio} className="hidden" />
-                <span className="text-gray-600">{uploadingAudio ? 'Upload...' : '+ Ajouter une piste audio'}</span>
-              </div>
-            </label>
-          </div>
-
-          {/* Comments */}
-          <div className="bg-white rounded-xl p-4 shadow-sm">
-            <h2 className="font-semibold text-lg mb-3">💬 Commentaires ({comments.length})</h2>
-            
-            {comments.length > 0 && (
-              <div className="space-y-3 mb-4 max-h-80 overflow-y-auto">
-                {comments.map(c => (
-                  <div key={c.id} className="bg-gray-50 rounded-lg p-3">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="font-medium text-sm">{c.user_id}</span>
-                      <span className="text-gray-400 text-xs">{formatDate(c.created_at)}</span>
-                    </div>
-                    <p className="text-gray-700">{c.text}</p>
-                  </div>
-                ))}
-              </div>
-            )}
-            
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={newComment}
-                onChange={(e) => setNewComment(e.target.value)}
-                onKeyPress={(e) => e.key === 'Enter' && addComment()}
-                placeholder="Ajouter un commentaire..."
-                className="flex-1 border rounded-lg px-4 py-2"
-              />
-              <button onClick={addComment} className="bg-blue-600 text-white px-4 py-2 rounded-lg">Envoyer</button>
+                  ))}
+                </div>
+              )}
+              <label className="block">
+                <div className="border border-dashed border-gray-200 rounded-xl p-3 text-center cursor-pointer hover:border-gray-400 transition-colors">
+                  <input type="file" accept="audio/*,.wav,.mp3,.aac,.edl,.xml" onChange={handleAudioUpload} disabled={uploadingAudio} className="hidden" />
+                  <span className="text-sm text-gray-400">{uploadingAudio ? 'Upload...' : '+ Ajouter une piste audio'}</span>
+                </div>
+              </label>
             </div>
-          </div>
 
-          {/* Download */}
-          <div className="mt-6">
-            <a 
-              href={video.file_url} 
-              download={`${video.title}.mp4`}
-              className="inline-flex items-center gap-2 bg-green-600 text-white px-6 py-3 rounded-xl font-medium hover:bg-green-700"
-            >
-              ⬇ Télécharger la vidéo
-            </a>
-          </div>
+            {/* Télécharger */}
+            <div className="mb-4">
+              <a href={video.file_url} download={`${video.title}.mp4`} className="inline-flex items-center gap-2 text-sm text-gray-500 border border-gray-200 px-4 py-2 rounded-xl hover:border-gray-400 transition-colors">
+                ⬇ Télécharger la vidéo
+              </a>
+            </div>
 
-          {/* Navigation hints */}
-          <div className="mt-8 flex justify-between text-sm text-gray-500">
-            {prevVideo ? (
-              <button onClick={() => navigateToVideo(currentIndex - 1)} className="hover:text-blue-600">
-                ← {prevVideo.title.substring(0, 20)}...
-              </button>
-            ) : <span></span>}
-            {nextVideo ? (
-              <button onClick={() => navigateToVideo(currentIndex + 1)} className="hover:text-blue-600">
-                {nextVideo.title.substring(0, 20)}... →
-              </button>
-            ) : <span></span>}
+            {/* Navigation mobile (bas de page) */}
+            <div className="md:hidden flex justify-between text-sm text-gray-400 mt-2">
+              {prevVideo ? <button onClick={() => navigateToVideo(currentIndex - 1)} className="truncate max-w-[45%]">← {prevVideo.title}</button> : <span />}
+              {nextVideo ? <button onClick={() => navigateToVideo(currentIndex + 1)} className="truncate max-w-[45%] text-right">{nextVideo.title} →</button> : <span />}
+            </div>
           </div>
         </div>
+
+        {/* Flèche droite */}
+        <div className="hidden md:flex flex-col items-center justify-start pt-12 w-32 shrink-0">
+          {nextVideo ? (
+            <button onClick={() => navigateToVideo(currentIndex + 1)} className="flex flex-col items-center gap-1 text-gray-400 hover:text-gray-700 transition-colors group px-2">
+              <span className="text-2xl group-hover:translate-x-1 transition-transform">→</span>
+              <span className="text-xs text-center leading-tight max-w-[90px] line-clamp-2">{nextVideo.title}</span>
+            </button>
+          ) : <div className="w-20" />}
+        </div>
+
       </div>
     </div>
   )
