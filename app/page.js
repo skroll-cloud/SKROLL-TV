@@ -824,7 +824,7 @@ export default function Home() {
                             {[['B','bertrand_vote'],['S','sebastien_vote'],['P','pierreemmanuel_vote']].map(([init, col]) => {
                               const v = video[col]
                               return (
-                                <span key={col} className={`px-1.5 py-0.5 rounded text-xs font-medium ${v === 'oui' ? 'bg-gray-900 text-white' : v === 'non' ? 'bg-gray-100 text-gray-400 line-through' : 'bg-gray-100 text-gray-400'}`}>
+                                <span key={col} className={`px-1.5 py-0.5 rounded text-xs font-medium ${v === 'oui' ? 'bg-green-100 text-green-800' : v === 'non' ? 'bg-red-50 text-red-400 line-through' : 'bg-gray-100 text-gray-400'}`}>
                                   {init}{v === 'oui' ? '✓' : v === 'non' ? '✗' : ''}
                                 </span>
                               )
@@ -917,7 +917,7 @@ export default function Home() {
                               <div className="flex gap-1 mt-1">
                                 {[['B', 'bertrand_vote'], ['S', 'sebastien_vote'], ['P', 'pierreemmanuel_vote']].map(([init, col]) => {
                                   const v = video[col]
-                                  return <span key={col} className={`text-xs px-1 rounded ${v === 'oui' ? 'text-gray-900 font-bold' : v === 'non' ? 'text-gray-400 line-through' : 'text-gray-300'}`}>{init}{v === 'oui' ? '✓' : v === 'non' ? '✗' : ''}</span>
+                                  return <span key={col} className={`text-xs px-1 rounded ${v === 'oui' ? 'text-green-700 font-bold' : v === 'non' ? 'text-red-400 line-through' : 'text-gray-300'}`}>{init}{v === 'oui' ? '✓' : v === 'non' ? '✗' : ''}</span>
                                 })}
                               </div>
                             </td>
@@ -1086,7 +1086,7 @@ export default function Home() {
                       {[['B','bertrand_vote'],['S','sebastien_vote'],['P','pierreemmanuel_vote']].map(([init, col]) => {
                         const v = video[col]
                         return (
-                          <span key={col} className={`px-1.5 py-0.5 rounded text-xs font-medium ${v === 'oui' ? 'bg-gray-900 text-white' : v === 'non' ? 'bg-gray-100 text-gray-400 line-through' : 'bg-gray-100 text-gray-400'}`}>
+                          <span key={col} className={`px-1.5 py-0.5 rounded text-xs font-medium ${v === 'oui' ? 'bg-green-100 text-green-800' : v === 'non' ? 'bg-red-50 text-red-400 line-through' : 'bg-gray-100 text-gray-400'}`}>
                             {init}{v === 'oui' ? '✓' : v === 'non' ? '✗' : ''}
                           </span>
                         )
@@ -1184,7 +1184,7 @@ export default function Home() {
                     <div className="flex gap-1 mb-2">
                       {[['B','bertrand_vote'],['S','sebastien_vote'],['P','pierreemmanuel_vote']].map(([init, col]) => {
                         const v = video[col]
-                        return <span key={col} className={`px-1.5 py-0.5 rounded text-xs font-medium ${v === 'oui' ? 'bg-gray-900 text-white' : v === 'non' ? 'bg-gray-100 text-gray-400 line-through' : 'bg-gray-100 text-gray-400'}`}>{init}{v === 'oui' ? '✓' : v === 'non' ? '✗' : ''}</span>
+                        return <span key={col} className={`px-1.5 py-0.5 rounded text-xs font-medium ${v === 'oui' ? 'bg-green-100 text-green-800' : v === 'non' ? 'bg-red-50 text-red-400 line-through' : 'bg-gray-100 text-gray-400'}`}>{init}{v === 'oui' ? '✓' : v === 'non' ? '✗' : ''}</span>
                       })}
                       <button onClick={() => toggleComments(video.id)} className={`ml-auto text-xs px-1.5 py-0.5 rounded ${expandedComments === video.id ? 'bg-gray-900 text-white' : commentCount > 0 ? 'bg-gray-100 text-gray-600' : 'bg-gray-50 text-gray-400'}`}>
                         {commentCount > 0 ? commentCount : '+'} 💬

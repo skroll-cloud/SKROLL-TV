@@ -331,7 +331,7 @@ export default function VideoPage({ params }) {
               {[['Bertrand', 'bertrand_vote'], ['Sébastien', 'sebastien_vote'], ['Pierre E.', 'pierreemmanuel_vote']].map(([name, col]) => {
                 const v = video[col]
                 return (
-                  <span key={col} className={`px-3 py-1.5 rounded-full text-sm font-medium ${v === 'oui' ? 'bg-gray-900 text-white' : v === 'non' ? 'bg-gray-100 text-gray-400 line-through' : 'bg-gray-100 text-gray-500'}`}>
+                  <span key={col} className={`px-3 py-1.5 rounded-full text-sm font-medium ${v === 'oui' ? 'bg-green-100 text-green-800' : v === 'non' ? 'bg-red-50 text-red-400 line-through' : 'bg-gray-100 text-gray-400'}`}>
                     {name} {v === 'oui' ? '✓' : v === 'non' ? '✗' : ''}
                   </span>
                 )
