@@ -65,7 +65,7 @@ export default function Home() {
   const taskFolders = ['Production', 'Visual Identity', 'Communication', 'Admin', 'Autre']
   
   const [ideas, setIdeas] = useState([])
-  const [newIdea, setNewIdea] = useState({ title: '', description: '', tags: '' })
+  const [newIdea, setNewIdea] = useState({ title: '', description: '', tags: '', link_url: '' })
   
   const [contacts, setContacts] = useState([])
   const [newContact, setNewContact] = useState({ name: '', type: 'Journaliste', contact: '', status: 'À contacter', notes: '' })
@@ -331,7 +331,7 @@ export default function Home() {
   async function updateTaskStatus(taskId, status) { await supabase.from('tasks').update({ status }).eq('id', taskId); loadTasks() }
 
   async function loadIdeas() { const { data } = await supabase.from('ideas').select('*').order('created_at', { ascending: false }); if (data) setIdeas(data) }
-  async function createIdea() { if (!newIdea.title.trim()) return; const tags = newIdea.tags.split(',').map(t => t.trim()).filter(t => t); await supabase.from('ideas').insert([{ ...newIdea, tags, status: 'Nouvelle' }]); setNewIdea({ title: '', description: '', tags: '' }); loadIdeas() }
+  async function createIdea() { if (!newIdea.title.trim()) return; const tags = newIdea.tags.split(',').map(t => t.trim()).filter(t => t); await supabase.from('ideas').insert([{ ...newIdea, tags, status: 'Nouvelle' }]); setNewIdea({ title: '', description: '', tags: '', link_url: '' }); loadIdeas() }
   async function updateIdea(idea) { await supabase.from('ideas').update(idea).eq('id', idea.id); loadIdeas() }
   async function deleteIdea(ideaId) { if (!confirm('Supprimer ?')) return; await supabase.from('ideas').delete().eq('id', ideaId); loadIdeas() }
 
@@ -374,6 +374,58 @@ export default function Home() {
     if (diffH < 24) return `${diffH}h`
     if (diffD < 7) return `${diffD}j`
     return d.toLocaleDateString('fr-FR')
+  }
+
+  function renderLinkPreview(url) {
+    if (!url) return null
+    try {
+      const u = new URL(url)
+      const host = u.hostname.replace('www.', '')
+      // YouTube
+      if (host === 'youtube.com' || host === 'youtu.be' || host === 'm.youtube.com') {
+        let videoId = null
+        if (host === 'youtu.be') videoId = u.pathname.slice(1).split('?')[0]
+        else if (u.pathname.startsWith('/shorts/')) videoId = u.pathname.replace('/shorts/', '').split('?')[0]
+        else videoId = u.searchParams.get('v')
+        if (videoId) return (
+          <div className="mt-3 rounded-xl overflow-hidden border border-red-200">
+            <iframe src={`https://www.youtube.com/embed/${videoId}`} className="w-full aspect-video" allowFullScreen title="YouTube" />
+          </div>
+        )
+      }
+      // Instagram
+      if (host === 'instagram.com') return (
+        <a href={url} target="_blank" rel="noopener noreferrer" className="mt-3 flex items-center gap-3 p-3 bg-gradient-to-r from-purple-50 to-pink-50 border border-pink-200 rounded-xl hover:shadow-sm transition-shadow no-underline">
+          <span className="text-2xl">📸</span>
+          <div className="flex-1 min-w-0"><p className="text-xs font-semibold text-pink-700">Instagram</p><p className="text-xs text-gray-500 truncate">{url}</p></div>
+          <span className="text-pink-500 text-sm">→</span>
+        </a>
+      )
+      // Facebook
+      if (host === 'facebook.com' || host === 'fb.watch' || host === 'fb.com') return (
+        <a href={url} target="_blank" rel="noopener noreferrer" className="mt-3 flex items-center gap-3 p-3 bg-blue-50 border border-blue-200 rounded-xl hover:shadow-sm transition-shadow no-underline">
+          <span className="text-2xl">📘</span>
+          <div className="flex-1 min-w-0"><p className="text-xs font-semibold text-blue-700">Facebook</p><p className="text-xs text-gray-500 truncate">{url}</p></div>
+          <span className="text-blue-500 text-sm">→</span>
+        </a>
+      )
+      // TikTok
+      if (host === 'tiktok.com' || host === 'vm.tiktok.com') return (
+        <a href={url} target="_blank" rel="noopener noreferrer" className="mt-3 flex items-center gap-3 p-3 bg-gray-900 border border-gray-700 rounded-xl hover:shadow-sm transition-shadow no-underline">
+          <span className="text-2xl">🎵</span>
+          <div className="flex-1 min-w-0"><p className="text-xs font-semibold text-white">TikTok</p><p className="text-xs text-gray-400 truncate">{url}</p></div>
+          <span className="text-white text-sm">→</span>
+        </a>
+      )
+      // Lien générique
+      return (
+        <a href={url} target="_blank" rel="noopener noreferrer" className="mt-3 flex items-center gap-3 p-3 bg-gray-50 border border-gray-200 rounded-xl hover:shadow-sm transition-shadow no-underline">
+          <span className="text-2xl">🔗</span>
+          <div className="flex-1 min-w-0"><p className="text-xs font-semibold text-gray-700">{host}</p><p className="text-xs text-gray-500 truncate">{url}</p></div>
+          <span className="text-gray-500 text-sm">→</span>
+        </a>
+      )
+    } catch { return null }
   }
 
   // Filters
@@ -749,10 +801,43 @@ export default function Home() {
                             {videoTypes.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                           </select>
                           
+                          {/* Bulle commentaire cliquable */}
                           <div className="flex gap-1 mb-2">
-                            {commentCount > 0 && <span className="text-xs bg-yellow-100 text-yellow-800 px-1.5 py-0.5 rounded">💬{commentCount}</span>}
+                            <button
+                              onClick={() => toggleComments(video.id)}
+                              className={`text-xs px-2 py-0.5 rounded flex items-center gap-1 ${expandedComments === video.id ? 'bg-yellow-300 text-yellow-900 font-medium' : commentCount > 0 ? 'bg-yellow-100 text-yellow-800 hover:bg-yellow-200' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+                            >
+                              💬 {commentCount > 0 ? commentCount : '+'}
+                            </button>
                           </div>
-                          
+
+                          {/* Commentaires inline */}
+                          {expandedComments === video.id && (
+                            <div className="mb-2 border border-yellow-100 rounded-lg p-2 bg-yellow-50">
+                              <div className="space-y-1.5 mb-2 max-h-32 overflow-y-auto">
+                                {(videoComments[video.id] || []).length === 0 ? (
+                                  <p className="text-xs text-gray-400 italic">Aucun commentaire</p>
+                                ) : (videoComments[video.id] || []).map(c => (
+                                  <div key={c.id} className="text-xs">
+                                    <span className={`font-semibold mr-1 ${c.user_id === 'Bertrand' ? 'text-blue-600' : c.user_id === 'Sébastien' ? 'text-green-600' : 'text-purple-600'}`}>{c.user_id?.split(' ')[0]}</span>
+                                    <span className="text-gray-700">{c.text}</span>
+                                  </div>
+                                ))}
+                              </div>
+                              <div className="flex gap-1">
+                                <input
+                                  type="text"
+                                  value={newComment}
+                                  onChange={(e) => setNewComment(e.target.value)}
+                                  onKeyDown={(e) => { if (e.key === 'Enter') addQuickComment(video.id) }}
+                                  placeholder="Commenter..."
+                                  className="flex-1 text-xs border rounded px-2 py-1 bg-white"
+                                />
+                                <button onClick={() => addQuickComment(video.id)} className="text-xs bg-blue-600 text-white px-2 py-1 rounded">→</button>
+                              </div>
+                            </div>
+                          )}
+
                           <button onClick={() => toggleMyApproval(video.id)} className={`w-full py-2 rounded-lg text-xs font-medium mb-2 ${myApproval ? 'bg-green-500 text-white' : 'bg-gray-100'}`}>
                             {myApproval ? '✓ Validée' : 'Valider'}
                           </button>
@@ -965,47 +1050,87 @@ export default function Home() {
                     <p className="text-gray-500 mb-2">Vous n'êtes référent d'aucune vidéo pour l'instant.</p>
                     <p className="text-gray-400 text-sm">Allez dans "Vidéos" et cliquez sur "Prendre" sur les vidéos dont vous souhaitez vous occuper.</p>
                   </div>
-                ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
-                    {myVideos.map((video) => {
-                      const myField = userToColumn[currentUser]
-                      const myApproval = video[myField]
-                      const allApproved = video.bertrand_approved && video.sebastien_approved && video.pierreemmanuel_approved
-                      const commentCount = commentCounts[video.id] || 0
+                ) : (() => {
+                  const validatedVideos = myVideos.filter(v => v.bertrand_approved && v.sebastien_approved && v.pierreemmanuel_approved)
+                  const inProgressVideos = myVideos.filter(v => !(v.bertrand_approved && v.sebastien_approved && v.pierreemmanuel_approved))
 
-                      return (
-                        <div key={video.id} className={`bg-white rounded-xl overflow-hidden shadow-sm border-2 ${allApproved ? 'border-green-400' : 'border-purple-200'}`}>
-                          <div className="relative cursor-pointer" onClick={() => router.push(`/video/${video.id}`)}>
-                            {allApproved && <div className="absolute top-1 right-1 z-10 bg-green-500 text-white text-xs px-1.5 py-0.5 rounded-full">✅</div>}
-                            <video src={video.file_url} preload="metadata" className="w-full aspect-video bg-gray-900" muted />
-                          </div>
-                          <div className="p-3 md:p-4">
-                            <h3 className="font-semibold text-sm md:text-base truncate mb-2">{video.title}</h3>
-
-                            {video.video_types?.name && (
-                              <span className="inline-block text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full mb-2">{video.video_types.name}</span>
-                            )}
-
-                            <div className="flex gap-1 mb-3">
-                              <span className={`px-2 py-0.5 rounded text-xs ${video.bertrand_approved ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'}`}>B</span>
-                              <span className={`px-2 py-0.5 rounded text-xs ${video.sebastien_approved ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'}`}>S</span>
-                              <span className={`px-2 py-0.5 rounded text-xs ${video.pierreemmanuel_approved ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'}`}>P</span>
-                              {commentCount > 0 && <span className="text-xs bg-yellow-100 text-yellow-800 px-1.5 py-0.5 rounded ml-auto">💬{commentCount}</span>}
-                            </div>
-
-                            <div className="flex gap-2">
-                              <button onClick={() => router.push(`/video/${video.id}`)} className="flex-1 py-2 rounded-lg text-xs bg-blue-50 text-blue-600 font-medium">Ouvrir</button>
-                              <button onClick={() => toggleMyApproval(video.id)} className={`flex-1 py-2 rounded-lg text-xs font-medium ${myApproval ? 'bg-green-500 text-white' : 'bg-gray-100'}`}>
-                                {myApproval ? '✓ Validée' : 'Valider'}
+                  const renderMyVideoCard = (video) => {
+                    const myField = userToColumn[currentUser]
+                    const myApproval = video[myField]
+                    const allApproved = video.bertrand_approved && video.sebastien_approved && video.pierreemmanuel_approved
+                    const commentCount = commentCounts[video.id] || 0
+                    return (
+                      <div key={video.id} className={`bg-white rounded-xl overflow-hidden shadow-sm border-2 ${allApproved ? 'border-green-400' : 'border-purple-200'}`}>
+                        <div className="relative cursor-pointer" onClick={() => router.push(`/video/${video.id}`)}>
+                          {allApproved && <div className="absolute top-1 right-1 z-10 bg-green-500 text-white text-xs px-1.5 py-0.5 rounded-full">✅</div>}
+                          <video src={video.file_url} preload="metadata" className="w-full aspect-video bg-gray-900" muted />
+                        </div>
+                        <div className="p-3 md:p-4">
+                          <h3 className="font-semibold text-sm md:text-base truncate mb-2">{video.title}</h3>
+                          {video.video_types?.name && (
+                            <span className="inline-block text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full mb-2">{video.video_types.name}</span>
+                          )}
+                          <div className="flex gap-1 mb-3">
+                            <span className={`px-2 py-0.5 rounded text-xs ${video.bertrand_approved ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'}`}>B</span>
+                            <span className={`px-2 py-0.5 rounded text-xs ${video.sebastien_approved ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'}`}>S</span>
+                            <span className={`px-2 py-0.5 rounded text-xs ${video.pierreemmanuel_approved ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'}`}>P</span>
+                            {commentCount > 0 && (
+                              <button onClick={() => toggleComments(video.id)} className={`text-xs px-1.5 py-0.5 rounded ml-auto ${expandedComments === video.id ? 'bg-yellow-300 text-yellow-900' : 'bg-yellow-100 text-yellow-800 hover:bg-yellow-200'}`}>
+                                💬{commentCount}
                               </button>
-                              <button onClick={() => releaseReferent(video.id)} className="py-2 px-2 rounded-lg text-xs bg-red-50 text-red-500 font-medium" title="Libérer la vidéo">✕</button>
+                            )}
+                          </div>
+                          {expandedComments === video.id && (
+                            <div className="mb-2 border border-yellow-100 rounded-lg p-2 bg-yellow-50">
+                              <div className="space-y-1 mb-2 max-h-24 overflow-y-auto">
+                                {(videoComments[video.id] || []).map(c => (
+                                  <div key={c.id} className="text-xs">
+                                    <span className={`font-semibold mr-1 ${c.user_id === 'Bertrand' ? 'text-blue-600' : c.user_id === 'Sébastien' ? 'text-green-600' : 'text-purple-600'}`}>{c.user_id?.split(' ')[0]}</span>
+                                    <span className="text-gray-700">{c.text}</span>
+                                  </div>
+                                ))}
+                              </div>
+                              <div className="flex gap-1">
+                                <input type="text" value={newComment} onChange={(e) => setNewComment(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') addQuickComment(video.id) }} placeholder="Commenter..." className="flex-1 text-xs border rounded px-2 py-1 bg-white" />
+                                <button onClick={() => addQuickComment(video.id)} className="text-xs bg-blue-600 text-white px-2 py-1 rounded">→</button>
+                              </div>
                             </div>
+                          )}
+                          <div className="flex gap-2">
+                            <button onClick={() => router.push(`/video/${video.id}`)} className="flex-1 py-2 rounded-lg text-xs bg-blue-50 text-blue-600 font-medium">Ouvrir</button>
+                            <button onClick={() => toggleMyApproval(video.id)} className={`flex-1 py-2 rounded-lg text-xs font-medium ${myApproval ? 'bg-green-500 text-white' : 'bg-gray-100'}`}>
+                              {myApproval ? '✓ Validée' : 'Valider'}
+                            </button>
+                            <button onClick={() => releaseReferent(video.id)} className="py-2 px-2 rounded-lg text-xs bg-red-50 text-red-500 font-medium" title="Libérer la vidéo">✕</button>
                           </div>
                         </div>
-                      )
-                    })}
-                  </div>
-                )}
+                      </div>
+                    )
+                  }
+
+                  return (
+                    <div className="space-y-8">
+                      {inProgressVideos.length > 0 && (
+                        <div>
+                          <h3 className="text-lg font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                            <span className="w-3 h-3 rounded-full bg-orange-400 inline-block"></span>
+                            À terminer <span className="text-gray-400 font-normal text-sm">({inProgressVideos.length})</span>
+                          </h3>
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">{inProgressVideos.map(renderMyVideoCard)}</div>
+                        </div>
+                      )}
+                      {validatedVideos.length > 0 && (
+                        <div>
+                          <h3 className="text-lg font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                            <span className="w-3 h-3 rounded-full bg-green-500 inline-block"></span>
+                            Validées par tous <span className="text-gray-400 font-normal text-sm">({validatedVideos.length})</span>
+                          </h3>
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">{validatedVideos.map(renderMyVideoCard)}</div>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })()}
               </div>
             )
           })()}
@@ -1037,19 +1162,77 @@ export default function Home() {
 
           {currentSection === 'ideas' && (
             <div>
-              <h2 className="text-2xl md:text-3xl font-bold text-gray-900 mb-4">Idées</h2>
+              <h2 className="text-2xl md:text-3xl font-bold text-gray-900 mb-4">💡 Idées</h2>
+
+              {/* Formulaire nouvelle idée */}
               <div className="bg-white rounded-xl p-4 shadow-sm mb-6">
-                <input type="text" placeholder="Nouvelle idée..." value={newIdea.title} onChange={(e) => setNewIdea({...newIdea, title: e.target.value})} className="w-full border rounded-lg px-3 py-2 mb-2" />
-                <button onClick={createIdea} className="bg-blue-600 text-white px-4 py-2 rounded-lg">Ajouter</button>
+                <input
+                  type="text"
+                  placeholder="Titre de l'idée..."
+                  value={newIdea.title}
+                  onChange={(e) => setNewIdea({...newIdea, title: e.target.value})}
+                  className="w-full border rounded-lg px-3 py-2 mb-2 font-medium"
+                />
+                <textarea
+                  placeholder="Description, contexte, détails..."
+                  value={newIdea.description}
+                  onChange={(e) => setNewIdea({...newIdea, description: e.target.value})}
+                  rows={3}
+                  className="w-full border rounded-lg px-3 py-2 mb-2 text-sm resize-none"
+                />
+                <input
+                  type="url"
+                  placeholder="🔗 Lien de référence (YouTube, Instagram, Facebook, TikTok...)"
+                  value={newIdea.link_url}
+                  onChange={(e) => setNewIdea({...newIdea, link_url: e.target.value})}
+                  className="w-full border rounded-lg px-3 py-2 mb-2 text-sm"
+                />
+                {newIdea.link_url && (
+                  <div className="mb-2">{renderLinkPreview(newIdea.link_url)}</div>
+                )}
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    placeholder="Tags (séparés par virgules)"
+                    value={newIdea.tags}
+                    onChange={(e) => setNewIdea({...newIdea, tags: e.target.value})}
+                    className="flex-1 border rounded-lg px-3 py-2 text-sm"
+                  />
+                  <button onClick={createIdea} className="bg-blue-600 text-white px-5 py-2 rounded-lg font-medium">Ajouter</button>
+                </div>
               </div>
+
+              {/* Liste des idées */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {ideas.map(idea => (
-                  <div key={idea.id} className="bg-white rounded-xl p-4 shadow-sm">
-                    <h3 className="font-semibold mb-2">{idea.title}</h3>
-                    <p className="text-gray-600 text-sm mb-3">{idea.description}</p>
-                    <div className="flex justify-between">
-                      <select value={idea.status} onChange={(e) => updateIdea({...idea, status: e.target.value})} className="text-xs border rounded px-2 py-1"><option>Nouvelle</option><option>En réflexion</option><option>Validée</option><option>Rejetée</option></select>
-                      <button onClick={() => deleteIdea(idea.id)} className="text-red-500 text-sm">🗑</button>
+                  <div key={idea.id} className={`bg-white rounded-xl p-4 shadow-sm border-l-4 ${idea.status === 'Validée' ? 'border-green-400' : idea.status === 'Rejetée' ? 'border-red-300' : idea.status === 'En réflexion' ? 'border-yellow-400' : 'border-blue-300'}`}>
+                    <div className="flex justify-between items-start mb-2">
+                      <h3 className="font-semibold text-base leading-tight flex-1 pr-2">{idea.title}</h3>
+                      <button onClick={() => deleteIdea(idea.id)} className="text-red-400 hover:text-red-600 shrink-0">🗑</button>
+                    </div>
+                    {idea.description && (
+                      <p className="text-gray-600 text-sm mb-3 leading-relaxed">{idea.description}</p>
+                    )}
+                    {idea.tags && idea.tags.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mb-3">
+                        {(Array.isArray(idea.tags) ? idea.tags : idea.tags.split(',')).filter(t => t).map((tag, i) => (
+                          <span key={i} className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">{tag.trim()}</span>
+                        ))}
+                      </div>
+                    )}
+                    {idea.link_url && renderLinkPreview(idea.link_url)}
+                    <div className="flex justify-between items-center mt-3 pt-3 border-t border-gray-100">
+                      <select
+                        value={idea.status}
+                        onChange={(e) => updateIdea({...idea, status: e.target.value})}
+                        className={`text-xs border rounded px-2 py-1 font-medium ${idea.status === 'Validée' ? 'bg-green-50 text-green-700 border-green-200' : idea.status === 'Rejetée' ? 'bg-red-50 text-red-600 border-red-200' : idea.status === 'En réflexion' ? 'bg-yellow-50 text-yellow-700 border-yellow-200' : 'bg-blue-50 text-blue-600 border-blue-200'}`}
+                      >
+                        <option>Nouvelle</option>
+                        <option>En réflexion</option>
+                        <option>Validée</option>
+                        <option>Rejetée</option>
+                      </select>
+                      <span className="text-xs text-gray-400">{formatDate(idea.created_at)}</span>
                     </div>
                   </div>
                 ))}
