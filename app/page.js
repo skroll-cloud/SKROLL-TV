@@ -786,26 +786,75 @@ export default function Home() {
               {allComments.length === 0 ? (
                 <div className="text-center py-12 text-gray-500">Aucun commentaire</div>
               ) : (
-                <div className="space-y-3">
-                  {allComments.map(comment => (
-                    <div key={comment.id} className="bg-white rounded-xl p-4 shadow-sm">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="font-semibold">{comment.user_id}</span>
-                        <span className="text-gray-400 text-sm">{formatDate(comment.created_at)}</span>
-                      </div>
-                      <p className="text-gray-700 mb-2">{comment.text}</p>
-                      <button onClick={() => router.push(`/video/${comment.video_id}`)} className="text-sm text-blue-600">🎬 {comment.videos?.title}</button>
-                      {replyTo === comment.id ? (
-                        <div className="mt-3 flex gap-2">
-                          <input type="text" value={replyText} onChange={(e) => setReplyText(e.target.value)} placeholder="Répondre..." className="flex-1 border rounded-lg px-3 py-2 text-sm" autoFocus />
-                          <button onClick={() => addReply(comment.video_id)} className="bg-blue-600 text-white px-3 py-2 rounded-lg text-sm">OK</button>
-                          <button onClick={() => setReplyTo(null)} className="text-gray-500 px-2">✕</button>
+                <div className="space-y-6">
+                  {/* Group comments by video */}
+                  {(() => {
+                    const videoIds = [...new Set(allComments.map(c => c.video_id))]
+                    const videoCommentGroups = videoIds.map(videoId => {
+                      const videoComments = allComments.filter(c => c.video_id === videoId)
+                      const latestComment = videoComments[0]
+                      return { videoId, videoTitle: latestComment?.videos?.title, comments: videoComments, latestDate: latestComment?.created_at }
+                    }).sort((a, b) => new Date(b.latestDate) - new Date(a.latestDate))
+                    
+                    return videoCommentGroups.map(group => (
+                      <div key={group.videoId} className="bg-white rounded-xl shadow-sm overflow-hidden">
+                        {/* Video header */}
+                        <div className="bg-gray-50 px-4 py-3 border-b flex justify-between items-center">
+                          <button onClick={() => router.push(`/video/${group.videoId}`)} className="font-semibold text-blue-600 hover:underline">
+                            🎬 {group.videoTitle || 'Vidéo sans titre'}
+                          </button>
+                          <span className="text-sm text-gray-500">{group.comments.length} message{group.comments.length > 1 ? 's' : ''}</span>
                         </div>
-                      ) : (
-                        <button onClick={() => setReplyTo(comment.id)} className="block mt-2 text-sm text-gray-500">↩ Répondre</button>
-                      )}
-                    </div>
-                  ))}
+                        
+                        {/* Comments thread */}
+                        <div className="p-4 space-y-3">
+                          {group.comments.slice().reverse().map(comment => (
+                            <div key={comment.id} className="flex gap-3">
+                              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold ${
+                                comment.user_id === 'Bertrand' ? 'bg-blue-500' : 
+                                comment.user_id === 'Sébastien' ? 'bg-green-500' : 'bg-purple-500'
+                              }`}>
+                                {comment.user_id?.charAt(0)}
+                              </div>
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-medium text-sm">{comment.user_id}</span>
+                                  <span className="text-gray-400 text-xs">{formatDate(comment.created_at)}</span>
+                                </div>
+                                <p className="text-gray-700 text-sm mt-0.5">{comment.text}</p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        
+                        {/* Reply input */}
+                        <div className="px-4 pb-4">
+                          {replyTo === group.videoId ? (
+                            <div className="flex gap-2">
+                              <input 
+                                type="text" 
+                                value={replyText} 
+                                onChange={(e) => setReplyText(e.target.value)} 
+                                placeholder="Ajouter un commentaire..." 
+                                className="flex-1 border rounded-lg px-3 py-2 text-sm" 
+                                autoFocus 
+                                onKeyDown={(e) => { if (e.key === 'Enter') addReply(group.videoId) }}
+                              />
+                              <button onClick={() => addReply(group.videoId)} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm">Envoyer</button>
+                              <button onClick={() => setReplyTo(null)} className="text-gray-500 px-2">✕</button>
+                            </div>
+                          ) : (
+                            <button 
+                              onClick={() => setReplyTo(group.videoId)} 
+                              className="w-full text-left text-sm text-gray-400 border border-dashed rounded-lg px-3 py-2 hover:border-blue-400 hover:text-blue-500"
+                            >
+                              + Ajouter un commentaire...
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))
+                  })()}
                 </div>
               )}
             </div>
