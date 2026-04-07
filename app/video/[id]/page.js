@@ -15,6 +15,22 @@ const userToColumn = {
   'Pierre Emmanuel': 'pierreemmanuel_approved'
 }
 
+const userToVoteColumn = {
+  'Bertrand': 'bertrand_vote',
+  'Sébastien': 'sebastien_vote',
+  'Pierre Emmanuel': 'pierreemmanuel_vote'
+}
+
+function getVideoStatus(video) {
+  if (!video) return 'En attente'
+  const votes = [video.bertrand_vote, video.sebastien_vote, video.pierreemmanuel_vote]
+  const castVotes = votes.filter(Boolean)
+  if (castVotes.length === 0) return 'En attente'
+  if (castVotes.every(v => v === 'pad') && castVotes.length === 3) return 'PAD'
+  if (castVotes.some(v => v === 'a_terminer')) return 'À terminer'
+  return 'En attente'
+}
+
 export default function VideoPage({ params }) {
   const router = useRouter()
   const { id } = use(params)
@@ -149,12 +165,14 @@ export default function VideoPage({ params }) {
     loadAllVideos()
   }
 
-  async function toggleMyApproval() {
+  async function castVote(vote) {
     if (!video || !currentUser) return
-    const field = userToColumn[currentUser]
-    if (!field) return
-    const newValue = !video[field]
-    await supabase.from('videos').update({ [field]: newValue }).eq('id', video.id)
+    const voteCol = userToVoteColumn[currentUser]
+    const approvedCol = userToColumn[currentUser]
+    await supabase.from('videos').update({
+      [voteCol]: vote,
+      [approvedCol]: vote !== null
+    }).eq('id', video.id)
     loadAllVideos()
   }
 
@@ -208,9 +226,9 @@ export default function VideoPage({ params }) {
     return <div className="min-h-screen bg-gray-50 flex items-center justify-center"><div className="text-gray-500">Chargement...</div></div>
   }
 
-  const myField = userToColumn[currentUser]
-  const myApproval = video[myField]
-  const allApproved = video.bertrand_approved && video.sebastien_approved && video.pierreemmanuel_approved
+  const videoStatus = getVideoStatus(video)
+  const myVote = currentUser ? video[userToVoteColumn[currentUser]] : null
+  const allApproved = videoStatus === 'PAD'
   const prevVideo = currentIndex > 0 ? allVideos[currentIndex - 1] : null
   const nextVideo = currentIndex < allVideos.length - 1 ? allVideos[currentIndex + 1] : null
 
@@ -264,11 +282,9 @@ export default function VideoPage({ params }) {
       >
         {/* Video player */}
         <div className="relative bg-black">
-          {allApproved && (
-            <div className="absolute top-4 right-4 z-10 bg-green-500 text-white px-3 py-1 rounded-full text-sm font-medium">
-              ✅ Validée par tous
-            </div>
-          )}
+          <div className={`absolute top-4 right-4 z-10 px-3 py-1 rounded-full text-sm font-medium ${videoStatus === 'PAD' ? 'bg-green-500 text-white' : videoStatus === 'À terminer' ? 'bg-orange-500 text-white' : 'bg-gray-600 text-white'}`}>
+            {videoStatus === 'PAD' ? '✅ PAD' : videoStatus === 'À terminer' ? '🔧 À terminer' : '⏳ En attente'}
+          </div>
           <video 
             src={video.file_url} 
             controls 
@@ -303,23 +319,36 @@ export default function VideoPage({ params }) {
 
           {/* Validation */}
           <div className="mb-6">
-            <button 
-              onClick={toggleMyApproval} 
-              className={`w-full md:w-auto px-6 py-3 rounded-xl font-medium transition-all ${myApproval ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
-            >
-              {myApproval ? '✓ Validée par moi' : '○ Valider cette vidéo'}
-            </button>
-            
-            <div className="flex gap-3 mt-4">
-              <span className={`px-3 py-2 rounded-full text-sm ${video.bertrand_approved ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-400'}`}>
-                Bertrand {video.bertrand_approved ? '✓' : ''}
-              </span>
-              <span className={`px-3 py-2 rounded-full text-sm ${video.sebastien_approved ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-400'}`}>
-                Sébastien {video.sebastien_approved ? '✓' : ''}
-              </span>
-              <span className={`px-3 py-2 rounded-full text-sm ${video.pierreemmanuel_approved ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-400'}`}>
-                Pierre E. {video.pierreemmanuel_approved ? '✓' : ''}
-              </span>
+            <p className="text-sm text-gray-500 mb-3 font-medium">Mon vote :</p>
+            <div className="flex gap-3 flex-wrap">
+              <button
+                onClick={() => castVote('a_terminer')}
+                className={`px-5 py-3 rounded-xl font-medium transition-all ${myVote === 'a_terminer' ? 'bg-orange-500 text-white shadow-md' : 'bg-orange-50 text-orange-600 hover:bg-orange-100'}`}
+              >
+                🔧 À terminer
+              </button>
+              <button
+                onClick={() => castVote('pad')}
+                className={`px-5 py-3 rounded-xl font-medium transition-all ${myVote === 'pad' ? 'bg-green-500 text-white shadow-md' : 'bg-green-50 text-green-600 hover:bg-green-100'}`}
+              >
+                ✅ PAD — Prêt À Diffuser
+              </button>
+              {myVote && (
+                <button onClick={() => castVote(null)} className="px-4 py-3 rounded-xl bg-gray-100 text-gray-500 hover:bg-gray-200 font-medium">
+                  ✕ Effacer mon vote
+                </button>
+              )}
+            </div>
+
+            <div className="flex flex-wrap gap-3 mt-4">
+              {[['Bertrand', 'bertrand_vote'], ['Sébastien', 'sebastien_vote'], ['Pierre E.', 'pierreemmanuel_vote']].map(([name, col]) => {
+                const v = video[col]
+                return (
+                  <span key={col} className={`px-3 py-2 rounded-full text-sm font-medium ${v === 'pad' ? 'bg-green-100 text-green-800' : v === 'a_terminer' ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-400'}`}>
+                    {name} {v === 'pad' ? '✅' : v === 'a_terminer' ? '🔧' : '⏳'}
+                  </span>
+                )
+              })}
             </div>
           </div>
 
