@@ -913,7 +913,7 @@ export default function Home() {
                             <td className="px-4 py-3 text-sm">{video.video_types?.name || '-'}</td>
                             <td className="px-4 py-3 text-sm">{commentCounts[video.id] || 0}</td>
                             <td className="px-4 py-3 text-sm">
-                              <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${statusBadgeClass(rowStatus)}`}>{rowStatus}</span>
+                              <span className="inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">{rowStatus}</span>
                               <div className="flex gap-1 mt-1">
                                 {[['B', 'bertrand_vote'], ['S', 'sebastien_vote'], ['P', 'pierreemmanuel_vote']].map(([init, col]) => {
                                   const v = video[col]
