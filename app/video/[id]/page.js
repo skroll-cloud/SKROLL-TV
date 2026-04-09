@@ -23,11 +23,30 @@ const userToVoteColumn = {
 
 function getVideoStatus(video) {
   if (!video) return 'En attente'
-  if (video.is_pad) return 'PAD'
   const votes = [video.bertrand_vote, video.sebastien_vote, video.pierreemmanuel_vote]
   if (votes.some(v => v === 'non')) return 'À supprimer'
-  if (votes.every(v => v === 'oui')) return 'À terminer'
+  if (votes.every(v => v === 'pad')) return 'PAD'
+  if (votes.some(v => v !== null)) return 'En cours'
   return 'En attente'
+}
+
+function voteStyle(v) {
+  if (v === 'pad') return 'bg-green-100 text-green-700'
+  if (v === 'ameliorer') return 'bg-orange-100 text-orange-600'
+  if (v === 'non') return 'bg-red-100 text-red-500 line-through'
+  return 'bg-gray-100 text-gray-400'
+}
+
+function voteIcon(v) {
+  if (v === 'pad') return ' ✓'
+  if (v === 'ameliorer') return ' ~'
+  if (v === 'non') return ' ✗'
+  return ''
+}
+
+function cycleVote(current) {
+  const next = { null: 'ameliorer', ameliorer: 'pad', pad: 'non', non: null }
+  return next[current] ?? 'ameliorer'
 }
 
 export default function VideoPage({ params }) {
@@ -40,6 +59,7 @@ export default function VideoPage({ params }) {
   const [currentIndex, setCurrentIndex] = useState(0)
   const [comments, setComments] = useState([])
   const [newComment, setNewComment] = useState('')
+  const [commentAssignee, setCommentAssignee] = useState('')
   const [audioTracks, setAudioTracks] = useState([])
   const [uploadingAudio, setUploadingAudio] = useState(false)
   const [videoTypes, setVideoTypes] = useState([])
@@ -147,8 +167,11 @@ export default function VideoPage({ params }) {
 
   async function addComment() {
     if (!newComment.trim() || !video) return
-    await supabase.from('comments').insert([{ video_id: video.id, user_id: currentUser, text: newComment }])
+    const payload = { video_id: video.id, user_id: currentUser, text: newComment }
+    if (commentAssignee) payload.assignee = commentAssignee
+    await supabase.from('comments').insert([payload])
     setNewComment('')
+    setCommentAssignee('')
     loadComments(video.id)
   }
 
@@ -165,23 +188,16 @@ export default function VideoPage({ params }) {
   }
 
   async function castVote(vote) {
-    // vote: 'oui' | 'non' | null
+    // vote: 'pad' | 'ameliorer' | 'non' | null
     if (!video || !currentUser) return
     const voteCol = userToVoteColumn[currentUser]
     await supabase.from('videos').update({ [voteCol]: vote }).eq('id', video.id)
     loadAllVideos()
   }
 
-  async function markAsPad() {
-    if (!video) return
-    await supabase.from('videos').update({ is_pad: true }).eq('id', video.id)
-    loadAllVideos()
-  }
-
-  async function unmarkAsPad() {
-    if (!video) return
-    await supabase.from('videos').update({ is_pad: false }).eq('id', video.id)
-    loadAllVideos()
+  function navigateToSection(sectionId) {
+    localStorage.setItem('skroll_section', sectionId)
+    router.push('/')
   }
 
   async function updateVideoType(typeId) {
@@ -240,26 +256,46 @@ export default function VideoPage({ params }) {
   const prevVideo = currentIndex > 0 ? allVideos[currentIndex - 1] : null
   const nextVideo = currentIndex < allVideos.length - 1 ? allVideos[currentIndex + 1] : null
 
+  const enAttenteCount = allVideos.filter(v => getVideoStatus(v) === 'En attente').length
+  const aTerminerCount = allVideos.filter(v => getVideoStatus(v) === 'À terminer').length
+  const aSupprimerCount = allVideos.filter(v => getVideoStatus(v) === 'À supprimer').length
+  const padCount = allVideos.filter(v => getVideoStatus(v) === 'PAD').length
+
+  const navItems = [
+    {id:'videos', icon:'🎬', label:'Toutes les vidéos'},
+    {id:'en-attente', icon:'⏳', label:`En attente (${enAttenteCount})`},
+    {id:'a-terminer', icon:'🔧', label:`À terminer (${aTerminerCount})`},
+    {id:'a-supprimer', icon:'🗑', label:`À supprimer (${aSupprimerCount})`},
+    {id:'pad', icon:'✅', label:`PAD (${padCount})`},
+    {id:'mes-videos', icon:'🎯', label:'Mes vidéos'},
+    {id:'tasks', icon:'📋', label:'Tâches'},
+    {id:'ideas', icon:'💡', label:'Idées'},
+    {id:'contacts', icon:'👥', label:'Contacts'},
+    {id:'files', icon:'📁', label:'Fichiers'}
+  ]
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <header className="bg-white border-b sticky top-0 z-50 shadow-sm">
-        <div className="max-w-4xl mx-auto px-4 py-3 flex items-center justify-between">
-          <button onClick={() => router.push('/')} className="flex items-center gap-2 text-gray-600 hover:text-gray-900">
-            <span className="text-xl">←</span>
-            <span className="font-medium">Retour</span>
-          </button>
+        <div className="px-4 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <button onClick={() => router.push('/')} className="md:hidden flex items-center gap-1 text-gray-600">
+              <span className="text-xl">←</span>
+            </button>
+            <h1 className="text-xl font-bold text-blue-600 hidden md:block">SKROLL.TV</h1>
+          </div>
           <div className="flex items-center gap-2 text-sm text-gray-500">
             <span>{currentIndex + 1} / {allVideos.length}</span>
           </div>
           <div className="flex gap-2">
-            <button 
-              onClick={() => prevVideo && navigateToVideo(currentIndex - 1)} 
+            <button
+              onClick={() => prevVideo && navigateToVideo(currentIndex - 1)}
               disabled={!prevVideo}
               className="px-3 py-1 bg-gray-100 rounded-lg disabled:opacity-30"
             >←</button>
-            <button 
-              onClick={() => nextVideo && navigateToVideo(currentIndex + 1)} 
+            <button
+              onClick={() => nextVideo && navigateToVideo(currentIndex + 1)}
               disabled={!nextVideo}
               className="px-3 py-1 bg-gray-100 rounded-lg disabled:opacity-30"
             >→</button>
@@ -270,29 +306,34 @@ export default function VideoPage({ params }) {
       {/* Progress bar */}
       <div className="h-1 bg-gray-200 flex">
         {allVideos.map((_, i) => (
-          <div 
-            key={i} 
-            className={`flex-1 transition-colors ${i === currentIndex ? 'bg-blue-600' : i < currentIndex ? 'bg-blue-300' : 'bg-gray-200'}`} 
+          <div
+            key={i}
+            className={`flex-1 transition-colors ${i === currentIndex ? 'bg-blue-600' : i < currentIndex ? 'bg-blue-300' : 'bg-gray-200'}`}
           />
         ))}
       </div>
 
-      {/* Layout principal : flèches latérales + contenu centré */}
-      <div className="flex items-start max-w-6xl mx-auto">
-
-        {/* Flèche gauche */}
-        <div className="hidden md:flex flex-col items-center justify-start pt-12 w-32 shrink-0">
-          {prevVideo ? (
-            <button onClick={() => navigateToVideo(currentIndex - 1)} className="flex flex-col items-center gap-1 text-gray-400 hover:text-gray-700 transition-colors px-2">
-              <span className="text-2xl">←</span>
-              <span className="text-xs text-center leading-tight max-w-[90px] overflow-hidden">{prevVideo.title.substring(0, 30)}</span>
-            </button>
-          ) : <div className="w-20" />}
-        </div>
+      <div className="flex">
+        {/* Sidebar desktop */}
+        <nav className="hidden md:block w-64 bg-white border-r fixed left-0 top-[53px] bottom-0 overflow-y-auto">
+          <div className="p-4 border-b">
+            <p className="text-sm text-gray-500">{currentUser}</p>
+          </div>
+          <ul className="p-4 space-y-1">
+            {navItems.map((item) => (
+              <li key={item.id}>
+                <button onClick={() => navigateToSection(item.id)} className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg font-medium text-gray-700 hover:bg-gray-50 text-sm">
+                  <span>{item.icon}</span>
+                  <span>{item.label}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </nav>
 
         {/* Contenu principal */}
         <div
-          className="flex-1 min-w-0"
+          className="md:ml-64 flex-1 min-w-0"
           onTouchStart={onTouchStart}
           onTouchMove={onTouchMove}
           onTouchEnd={onTouchEnd}
@@ -340,10 +381,11 @@ export default function VideoPage({ params }) {
                   return (
                     <button
                       key={col}
-                      onClick={() => { if (isMe) castVote(v === 'oui' ? null : 'oui') }}
-                      className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${v === 'oui' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-400'} ${isMe ? 'cursor-pointer hover:opacity-75' : 'cursor-default'}`}
+                      onClick={() => { if (isMe) castVote(cycleVote(v)) }}
+                      className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${voteStyle(v)} ${isMe ? 'cursor-pointer hover:opacity-75' : 'cursor-default'}`}
+                      title={isMe ? 'Cliquer pour changer votre vote' : ''}
                     >
-                      {label} {v === 'oui' ? '✓' : ''}
+                      {label}{voteIcon(v)}
                     </button>
                   )
                 })}
@@ -365,20 +407,6 @@ export default function VideoPage({ params }) {
                 )}
               </div>
 
-              {/* Actions selon statut */}
-              {videoStatus === 'À terminer' && video.referent === currentUser && (
-                <div className="mt-3 pt-3 border-t border-gray-100">
-                  <button onClick={markAsPad} className="px-5 py-2 rounded-xl font-medium text-sm bg-gray-900 text-white">Marquer PAD</button>
-                </div>
-              )}
-              {videoStatus === 'PAD' && video.referent === currentUser && (
-                <div className="mt-3 pt-3 border-t border-gray-100">
-                  <button onClick={unmarkAsPad} className="text-sm text-gray-400 border border-gray-200 px-4 py-1.5 rounded-lg">Annuler PAD</button>
-                </div>
-              )}
-              {videoStatus === 'À terminer' && video.referent && video.referent !== currentUser && (
-                <p className="text-xs text-gray-400 mt-2">{video.referent} peut marquer PAD.</p>
-              )}
             </div>
 
             {/* 2 — Commentaires */}
@@ -392,8 +420,9 @@ export default function VideoPage({ params }) {
                         {c.user_id?.charAt(0)}
                       </div>
                       <div className="flex-1">
-                        <div className="flex items-baseline gap-2 mb-0.5">
+                        <div className="flex items-baseline gap-2 mb-0.5 flex-wrap">
                           <span className="font-medium text-sm">{c.user_id}</span>
+                          {c.assignee && <span className="text-xs bg-blue-100 text-blue-600 rounded-full px-2 py-0.5">→ {c.assignee.split(' ')[0]}</span>}
                           <span className="text-gray-400 text-xs">{formatDate(c.created_at)}</span>
                         </div>
                         <p className="text-gray-700 text-sm">{c.text}</p>
@@ -402,9 +431,18 @@ export default function VideoPage({ params }) {
                   ))}
                 </div>
               )}
-              <div className="flex gap-2">
+              <div className="flex gap-2 mb-2">
                 <input type="text" value={newComment} onChange={e => setNewComment(e.target.value)} onKeyPress={e => e.key === 'Enter' && addComment()} placeholder="Commenter..." className="flex-1 border border-gray-200 rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-gray-300" />
                 <button onClick={addComment} className="bg-gray-900 text-white px-4 py-2 rounded-xl text-sm">Envoyer</button>
+              </div>
+              <div className="flex gap-1 items-center">
+                <span className="text-xs text-gray-400">Assigner :</span>
+                {['Bertrand', 'Sébastien', 'Pierre Emmanuel'].map(name => (
+                  <button key={name} onClick={() => setCommentAssignee(commentAssignee === name ? '' : name)}
+                    className={`text-xs px-2 py-0.5 rounded-full ${commentAssignee === name ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500'}`}>
+                    {name.split(' ')[0]}
+                  </button>
+                ))}
               </div>
             </div>
 
@@ -449,17 +487,6 @@ export default function VideoPage({ params }) {
             </div>
           </div>
         </div>
-
-        {/* Flèche droite */}
-        <div className="hidden md:flex flex-col items-center justify-start pt-12 w-32 shrink-0">
-          {nextVideo ? (
-            <button onClick={() => navigateToVideo(currentIndex + 1)} className="flex flex-col items-center gap-1 text-gray-400 hover:text-gray-700 transition-colors px-2">
-              <span className="text-2xl">→</span>
-              <span className="text-xs text-center leading-tight max-w-[90px] overflow-hidden">{nextVideo.title.substring(0, 30)}</span>
-            </button>
-          ) : <div className="w-20" />}
-        </div>
-
       </div>
     </div>
   )
