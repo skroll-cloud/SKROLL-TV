@@ -607,7 +607,7 @@ export default function Home() {
 
 
           <div className="flex justify-between text-sm text-gray-400 pt-3 border-t border-gray-100">
-            <button onClick={() => router.push(`/video/${video.id}`)} className="text-gray-700">Détails</button>
+            <button onClick={() => router.push(`/video/${video.id}?from=${encodeURIComponent(statusFilter)}`)} className="text-gray-700">Détails</button>
             <a href={video.file_url} download>Télécharger</a>
           </div>
           <div className="flex justify-between mt-3">
@@ -834,7 +834,7 @@ export default function Home() {
 
                     return (
                       <div key={video.id} className="bg-white rounded-2xl overflow-hidden shadow-sm border border-gray-100">
-                        <div className="relative cursor-pointer" onClick={() => router.push(`/video/${video.id}`)}>
+                        <div className="relative cursor-pointer" onClick={() => router.push(`/video/${video.id}?from=${encodeURIComponent(statusFilter)}`)}>
                           <video src={video.file_url} preload="metadata" className="w-full aspect-video bg-gray-900" muted />
                         </div>
                         <div className="p-3">
@@ -929,7 +929,7 @@ export default function Home() {
                         const myVoteRow = currentUser ? video[userToVoteColumn[currentUser]] : null
                         return (
                           <tr key={video.id} className="hover:bg-gray-50">
-                            <td className="px-4 py-3"><button onClick={() => router.push(`/video/${video.id}`)} className="text-blue-600 hover:underline">{video.title}</button></td>
+                            <td className="px-4 py-3"><button onClick={() => router.push(`/video/${video.id}?from=${encodeURIComponent(statusFilter)}`)} className="text-blue-600 hover:underline">{video.title}</button></td>
                             <td className="px-4 py-3 text-sm">{video.video_types?.name || '-'}</td>
                             <td className="px-4 py-3 text-sm">{commentCounts[video.id] || 0}</td>
                             <td className="px-4 py-3 text-sm">
@@ -960,7 +960,7 @@ export default function Home() {
                               {/* Actions if needed */}
                             </td>
                             <td className="px-4 py-3 text-sm space-x-2">
-                              <button onClick={() => router.push(`/video/${video.id}`)} className="text-blue-600">Ouvrir</button>
+                              <button onClick={() => router.push(`/video/${video.id}?from=${encodeURIComponent(statusFilter)}`)} className="text-blue-600">Ouvrir</button>
                               <a href={video.file_url} download className="text-green-600">⬇</a>
                               <button onClick={() => deleteVideo(video.id)} className="text-red-600">🗑</button>
                             </td>
@@ -1074,7 +1074,7 @@ export default function Home() {
               const commentCount = commentCounts[video.id] || 0
               return (
                 <div key={video.id} className="bg-white rounded-2xl overflow-hidden shadow-sm border border-gray-100">
-                  <div className="relative cursor-pointer" onClick={() => router.push(`/video/${video.id}`)}>
+                  <div className="relative cursor-pointer" onClick={() => router.push(`/video/${video.id}?from=${encodeURIComponent(statusFilter)}`)}>
                     <video src={video.file_url} preload="metadata" className="w-full aspect-video bg-gray-900" muted />
                   </div>
                   <div className="p-3">
@@ -1170,7 +1170,7 @@ export default function Home() {
               const commentCount = commentCounts[video.id] || 0
               return (
                 <div key={video.id} className="bg-white rounded-2xl overflow-hidden shadow-sm border border-gray-100">
-                  <div className="relative cursor-pointer" onClick={() => router.push(`/video/${video.id}`)}>
+                  <div className="relative cursor-pointer" onClick={() => router.push(`/video/${video.id}?from=${encodeURIComponent(statusFilter)}`)}>
                     <video src={video.file_url} preload="metadata" className="w-full aspect-video bg-gray-900" muted />
                   </div>
                   <div className="p-3">

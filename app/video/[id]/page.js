@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, use } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@supabase/supabase-js'
 
 const supabase = createClient(
@@ -53,6 +53,8 @@ function cycleVote(current) {
 
 export default function VideoPage({ params }) {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const fromFilter = searchParams.get('from') || 'all'
   const { id } = use(params)
   
   const [currentUser, setCurrentUser] = useState(null)
@@ -88,12 +90,19 @@ export default function VideoPage({ params }) {
 
   useEffect(() => {
     if (allVideos.length > 0 && id) {
-      const index = allVideos.findIndex(v => v.id === id)
+      const navList = fromFilter !== 'all'
+        ? allVideos.filter(v => getVideoStatus(v) === fromFilter)
+        : allVideos
+      const index = navList.findIndex(v => v.id === id)
       if (index !== -1) {
         setCurrentIndex(index)
-        setVideo(allVideos[index])
+        setVideo(navList[index])
         loadComments(id)
         loadAudioTracks(id)
+      } else {
+        // vidéo pas dans le filtre, on la charge quand même mais sans contexte de nav
+        const v = allVideos.find(v => v.id === id)
+        if (v) { setVideo(v); loadComments(id); loadAudioTracks(id) }
       }
     }
   }, [allVideos, id])
@@ -155,13 +164,13 @@ export default function VideoPage({ params }) {
   }
 
   function navigateToVideo(newIndex) {
-    if (newIndex < 0 || newIndex >= allVideos.length) return
+    if (newIndex < 0 || newIndex >= navigationVideos.length) return
     setIsAnimating(true)
     const direction = newIndex > currentIndex ? -1 : 1
     setSwipeOffset(direction * window.innerWidth)
-    
+    const fromParam = fromFilter !== 'all' ? `?from=${encodeURIComponent(fromFilter)}` : ''
     setTimeout(() => {
-      router.push(`/video/${allVideos[newIndex].id}`)
+      router.push(`/video/${navigationVideos[newIndex].id}${fromParam}`)
       setSwipeOffset(0)
       setIsAnimating(false)
     }, 200)
@@ -254,21 +263,21 @@ export default function VideoPage({ params }) {
 
   const videoStatus = getVideoStatus(video)
   const myVote = currentUser ? video[userToVoteColumn[currentUser]] : null
-  const allApproved = videoStatus === 'PAD'
-  const prevVideo = currentIndex > 0 ? allVideos[currentIndex - 1] : null
-  const nextVideo = currentIndex < allVideos.length - 1 ? allVideos[currentIndex + 1] : null
 
-  const enAttenteCount = allVideos.filter(v => getVideoStatus(v) === 'En attente').length
-  const enCoursCount = allVideos.filter(v => getVideoStatus(v) === 'En cours').length
-  const aSupprimerCount = allVideos.filter(v => getVideoStatus(v) === 'À supprimer').length
-  const padCount = allVideos.filter(v => getVideoStatus(v) === 'PAD').length
+  // Liste de navigation filtrée selon le contexte d'origine
+  const navigationVideos = fromFilter !== 'all'
+    ? allVideos.filter(v => getVideoStatus(v) === fromFilter)
+    : allVideos
+  const prevVideo = currentIndex > 0 ? navigationVideos[currentIndex - 1] : null
+  const nextVideo = currentIndex < navigationVideos.length - 1 ? navigationVideos[currentIndex + 1] : null
 
   const navItems = [
-    {id:'videos', label:'Toutes les vidéos'},
-    {id:'en-attente', label:`En attente (${enAttenteCount})`},
-    {id:'en-cours', label:`En cours (${enCoursCount})`},
-    {id:'pad', label:`PAD (${padCount})`},
-    {id:'a-supprimer', label:`À supprimer (${aSupprimerCount})`},
+    {id:'videos', label:'Vidéos'},
+    {id:'comments', label:'Commentaires'},
+    {id:'tasks', label:'Tâches'},
+    {id:'ideas', label:'Idées'},
+    {id:'contacts', label:'Contacts'},
+    {id:'files', label:'Fichiers'},
   ]
 
   return (
@@ -282,8 +291,8 @@ export default function VideoPage({ params }) {
             </button>
             <h1 className="text-xl font-bold text-blue-600 hidden md:block">SKROLL.TV</h1>
           </div>
-          <div className="flex items-center gap-2 text-sm text-gray-500">
-            <span>{currentIndex + 1} / {allVideos.length}</span>
+          <div className="flex items-center gap-2 text-sm text-gray-400">
+            <span>{currentIndex + 1} / {navigationVideos.length}{fromFilter !== 'all' ? ` · ${fromFilter}` : ''}</span>
           </div>
           <div className="flex gap-2">
             <button
@@ -301,29 +310,29 @@ export default function VideoPage({ params }) {
       </header>
 
       {/* Progress bar */}
-      <div className="h-1 bg-gray-200 flex">
-        {allVideos.map((_, i) => (
+      <div className="h-0.5 bg-gray-100 flex">
+        {navigationVideos.map((_, i) => (
           <div
             key={i}
-            className={`flex-1 transition-colors ${i === currentIndex ? 'bg-blue-600' : i < currentIndex ? 'bg-blue-300' : 'bg-gray-200'}`}
+            className={`flex-1 transition-colors ${i === currentIndex ? 'bg-blue-500' : i < currentIndex ? 'bg-blue-200' : 'bg-gray-100'}`}
           />
         ))}
       </div>
 
       <div className="flex">
-        {/* Sidebar desktop */}
-        <nav className="hidden md:block w-56 bg-white border-r fixed left-0 top-[53px] bottom-0 overflow-y-auto">
-          <ul className="p-4 space-y-0.5">
+        {/* Sidebar desktop — identique à la page principale */}
+        <nav className="hidden md:flex flex-col w-48 bg-white border-r fixed left-0 top-[49px] bottom-0">
+          <ul className="p-3 space-y-0.5 flex-1">
             {navItems.map((item) => (
               <li key={item.id}>
-                <button onClick={() => navigateToSection(item.id)} className="w-full text-left px-3 py-2.5 rounded-xl text-sm text-gray-500 hover:text-gray-900 hover:bg-gray-50 transition-colors">
+                <button onClick={() => navigateToSection(item.id)} className="w-full text-left px-3 py-2 rounded-lg text-sm text-gray-500 hover:text-gray-800 transition-colors">
                   {item.label}
                 </button>
               </li>
             ))}
           </ul>
-          <div className="p-4 pt-2 border-t border-gray-100 mt-2">
-            <button onClick={() => navigateToSection('espace-perso')} className="w-full text-left px-3 py-2.5 rounded-xl text-sm text-gray-500 hover:text-gray-900 hover:bg-gray-50 transition-colors">
+          <div className="p-3 border-t border-gray-100">
+            <button onClick={() => navigateToSection('espace-perso')} className="w-full text-left px-3 py-2 rounded-lg text-sm text-gray-500 hover:text-gray-800 transition-colors">
               Espace perso
             </button>
           </div>
@@ -331,7 +340,7 @@ export default function VideoPage({ params }) {
 
         {/* Contenu principal */}
         <div
-          className="md:ml-56 flex-1 min-w-0"
+          className="md:ml-48 flex-1 min-w-0"
           onTouchStart={onTouchStart}
           onTouchMove={onTouchMove}
           onTouchEnd={onTouchEnd}
@@ -479,7 +488,7 @@ export default function VideoPage({ params }) {
             </div>
 
             {/* Navigation mobile (bas de page) */}
-            <div className="md:hidden flex justify-between text-sm text-gray-400 mt-2">
+            <div className="md:hidden flex justify-between text-sm text-gray-400 mt-2 pb-2">
               {prevVideo ? <button onClick={() => navigateToVideo(currentIndex - 1)} className="truncate max-w-[45%]">← {prevVideo.title}</button> : <span />}
               {nextVideo ? <button onClick={() => navigateToVideo(currentIndex + 1)} className="truncate max-w-[45%] text-right">{nextVideo.title} →</button> : <span />}
             </div>
