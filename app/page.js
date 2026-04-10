@@ -45,8 +45,10 @@ function voteIcon(v) {
 }
 
 function cycleVote(current) {
-  const next = { null: 'ameliorer', ameliorer: 'pad', pad: 'non', non: null }
-  return next[current] ?? 'ameliorer'
+  if (current === 'ameliorer') return 'pad'
+  if (current === 'pad') return 'non'
+  if (current === 'non') return null
+  return 'ameliorer' // null/undefined → démarrer
 }
 
 function statusLabel(status) {
@@ -657,38 +659,31 @@ export default function Home() {
       {/* Mobile menu overlay */}
       {mobileMenuOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 z-40 md:hidden" onClick={() => setMobileMenuOpen(false)}>
-          <div className="bg-white w-64 h-full p-4" onClick={e => e.stopPropagation()}>
-            <div className="flex justify-between items-center mb-6">
+          <div className="bg-white w-64 h-full p-6" onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-8">
               <h2 className="text-xl font-bold text-blue-600">SKROLL.TV</h2>
-              <button onClick={() => setMobileMenuOpen(false)} className="text-2xl">✕</button>
+              <button onClick={() => setMobileMenuOpen(false)} className="text-gray-400 text-xl">✕</button>
             </div>
-            <ul className="space-y-2">
+            <ul className="space-y-1">
               {[
-                {id:'videos', icon:'🎬', label:'Toutes les vidéos'},
-                {id:'en-attente', icon:'◦', label:`En attente (${enAttenteCount})`},
-                {id:'en-cours', icon:'◦', label:`En cours (${enCoursCount})`},
-                {id:'a-supprimer', icon:'◦', label:`À supprimer (${aSupprimerCount})`},
-                {id:'pad', icon:'◦', label:`PAD (${padCount})`},
-                {id:'mes-videos', icon:'◦', label:'Mes vidéos'},
-                {id:'comments', icon:'◦', label:`Commentaires (${allComments.length})`},
-                {id:'tasks', icon:'◦', label:'Tâches'},
-                {id:'ideas', icon:'◦', label:'Idées'},
-                {id:'contacts', icon:'◦', label:'Contacts'},
-                {id:'files', icon:'◦', label:'Fichiers'},
-                {id:'espace-perso', icon:'◦', label:'Espace perso'}
+                {id:'videos', label:'Toutes les vidéos'},
+                {id:'en-attente', label:`En attente (${enAttenteCount})`},
+                {id:'en-cours', label:`En cours (${enCoursCount})`},
+                {id:'pad', label:`PAD (${padCount})`},
+                {id:'a-supprimer', label:`À supprimer (${aSupprimerCount})`},
               ].map((item) => (
                 <li key={item.id}>
-                  <button onClick={() => { setCurrentSection(item.id); setMobileMenuOpen(false) }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg ${currentSection === item.id ? 'bg-blue-50 text-blue-600' : 'text-gray-700'}`}>
-                    <span>{item.icon}</span>
-                    <span>{item.label}</span>
+                  <button onClick={() => { setCurrentSection(item.id); setMobileMenuOpen(false) }} className={`w-full text-left px-3 py-2.5 rounded-xl text-sm ${currentSection === item.id ? 'bg-blue-50 text-blue-600 font-medium' : 'text-gray-600'}`}>
+                    {item.label}
                   </button>
                 </li>
               ))}
             </ul>
-            <div className="mt-6 pt-6 border-t">
-              <p className="text-gray-600 mb-2">{currentUser}</p>
-              <button onClick={() => setShowPasswordModal(true)} className="text-sm text-gray-500 mr-4">🔐 Mot de passe</button>
-              <button onClick={handleLogout} className="text-sm text-red-500">Déconnexion</button>
+            <div className="mt-6 pt-6 border-t border-gray-100">
+              <button onClick={() => { setCurrentSection('espace-perso'); setMobileMenuOpen(false) }} className={`w-full text-left px-3 py-2.5 rounded-xl text-sm ${currentSection === 'espace-perso' ? 'bg-blue-50 text-blue-600 font-medium' : 'text-gray-600'}`}>
+                Espace perso
+              </button>
+              <button onClick={handleLogout} className="mt-4 text-sm text-red-400 px-3">Déconnexion</button>
             </div>
           </div>
         </div>
@@ -712,34 +707,31 @@ export default function Home() {
 
       <div className="flex">
         {/* Desktop sidebar */}
-        <nav className="hidden md:block w-64 bg-white border-r fixed left-0 top-[65px] bottom-0 overflow-y-auto">
-          <ul className="p-4 space-y-2">
+        <nav className="hidden md:block w-56 bg-white border-r fixed left-0 top-[65px] bottom-0 overflow-y-auto">
+          <ul className="p-4 space-y-0.5">
             {[
-              {id:'videos', icon:'🎬', label:'Toutes les vidéos'},
-              {id:'en-attente', icon:'⏳', label:`En attente (${enAttenteCount})`},
-              {id:'en-cours', icon:'🔧', label:`En cours (${enCoursCount})`},
-              {id:'a-supprimer', icon:'🗑', label:`À supprimer (${aSupprimerCount})`},
-              {id:'pad', icon:'✅', label:`PAD (${padCount})`},
-              {id:'mes-videos', icon:'🎯', label:'Mes vidéos'},
-              {id:'comments', icon:'💬', label:`Commentaires (${allComments.length})`},
-              {id:'tasks', icon:'📋', label:'Tâches'},
-              {id:'ideas', icon:'💡', label:'Idées'},
-              {id:'contacts', icon:'👥', label:'Contacts'},
-              {id:'files', icon:'📁', label:'Fichiers'},
-              {id:'espace-perso', icon:'👤', label:'Espace perso'}
+              {id:'videos', label:'Toutes les vidéos'},
+              {id:'en-attente', label:`En attente (${enAttenteCount})`},
+              {id:'en-cours', label:`En cours (${enCoursCount})`},
+              {id:'pad', label:`PAD (${padCount})`},
+              {id:'a-supprimer', label:`À supprimer (${aSupprimerCount})`},
             ].map((item) => (
               <li key={item.id}>
-                <button onClick={() => setCurrentSection(item.id)} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg font-medium ${currentSection === item.id ? 'bg-blue-50 text-blue-600' : 'text-gray-700 hover:bg-gray-50'}`}>
-                  <span className="text-xl">{item.icon}</span>
-                  <span>{item.label}</span>
+                <button onClick={() => setCurrentSection(item.id)} className={`w-full text-left px-3 py-2.5 rounded-xl text-sm transition-colors ${currentSection === item.id ? 'bg-blue-50 text-blue-600 font-medium' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'}`}>
+                  {item.label}
                 </button>
               </li>
             ))}
           </ul>
+          <div className="p-4 pt-2 border-t border-gray-100 mt-2">
+            <button onClick={() => setCurrentSection('espace-perso')} className={`w-full text-left px-3 py-2.5 rounded-xl text-sm transition-colors ${currentSection === 'espace-perso' ? 'bg-blue-50 text-blue-600 font-medium' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'}`}>
+              Espace perso
+            </button>
+          </div>
         </nav>
 
         {/* Main content */}
-        <main className="md:ml-64 p-4 md:p-8 w-full">
+        <main className="md:ml-56 p-4 md:p-8 w-full">
           {currentSection === 'videos' && (
             <div>
               <div className="mb-4 md:mb-6 flex flex-col md:flex-row justify-between items-start gap-4">

@@ -45,8 +45,10 @@ function voteIcon(v) {
 }
 
 function cycleVote(current) {
-  const next = { null: 'ameliorer', ameliorer: 'pad', pad: 'non', non: null }
-  return next[current] ?? 'ameliorer'
+  if (current === 'ameliorer') return 'pad'
+  if (current === 'pad') return 'non'
+  if (current === 'non') return null
+  return 'ameliorer' // null/undefined → démarrer
 }
 
 export default function VideoPage({ params }) {
@@ -257,21 +259,16 @@ export default function VideoPage({ params }) {
   const nextVideo = currentIndex < allVideos.length - 1 ? allVideos[currentIndex + 1] : null
 
   const enAttenteCount = allVideos.filter(v => getVideoStatus(v) === 'En attente').length
-  const aTerminerCount = allVideos.filter(v => getVideoStatus(v) === 'À terminer').length
+  const enCoursCount = allVideos.filter(v => getVideoStatus(v) === 'En cours').length
   const aSupprimerCount = allVideos.filter(v => getVideoStatus(v) === 'À supprimer').length
   const padCount = allVideos.filter(v => getVideoStatus(v) === 'PAD').length
 
   const navItems = [
-    {id:'videos', icon:'🎬', label:'Toutes les vidéos'},
-    {id:'en-attente', icon:'⏳', label:`En attente (${enAttenteCount})`},
-    {id:'a-terminer', icon:'🔧', label:`À terminer (${aTerminerCount})`},
-    {id:'a-supprimer', icon:'🗑', label:`À supprimer (${aSupprimerCount})`},
-    {id:'pad', icon:'✅', label:`PAD (${padCount})`},
-    {id:'mes-videos', icon:'🎯', label:'Mes vidéos'},
-    {id:'tasks', icon:'📋', label:'Tâches'},
-    {id:'ideas', icon:'💡', label:'Idées'},
-    {id:'contacts', icon:'👥', label:'Contacts'},
-    {id:'files', icon:'📁', label:'Fichiers'}
+    {id:'videos', label:'Toutes les vidéos'},
+    {id:'en-attente', label:`En attente (${enAttenteCount})`},
+    {id:'en-cours', label:`En cours (${enCoursCount})`},
+    {id:'pad', label:`PAD (${padCount})`},
+    {id:'a-supprimer', label:`À supprimer (${aSupprimerCount})`},
   ]
 
   return (
@@ -315,25 +312,26 @@ export default function VideoPage({ params }) {
 
       <div className="flex">
         {/* Sidebar desktop */}
-        <nav className="hidden md:block w-64 bg-white border-r fixed left-0 top-[53px] bottom-0 overflow-y-auto">
-          <div className="p-4 border-b">
-            <p className="text-sm text-gray-500">{currentUser}</p>
-          </div>
-          <ul className="p-4 space-y-1">
+        <nav className="hidden md:block w-56 bg-white border-r fixed left-0 top-[53px] bottom-0 overflow-y-auto">
+          <ul className="p-4 space-y-0.5">
             {navItems.map((item) => (
               <li key={item.id}>
-                <button onClick={() => navigateToSection(item.id)} className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg font-medium text-gray-700 hover:bg-gray-50 text-sm">
-                  <span>{item.icon}</span>
-                  <span>{item.label}</span>
+                <button onClick={() => navigateToSection(item.id)} className="w-full text-left px-3 py-2.5 rounded-xl text-sm text-gray-500 hover:text-gray-900 hover:bg-gray-50 transition-colors">
+                  {item.label}
                 </button>
               </li>
             ))}
           </ul>
+          <div className="p-4 pt-2 border-t border-gray-100 mt-2">
+            <button onClick={() => navigateToSection('espace-perso')} className="w-full text-left px-3 py-2.5 rounded-xl text-sm text-gray-500 hover:text-gray-900 hover:bg-gray-50 transition-colors">
+              Espace perso
+            </button>
+          </div>
         </nav>
 
         {/* Contenu principal */}
         <div
-          className="md:ml-64 flex-1 min-w-0"
+          className="md:ml-56 flex-1 min-w-0"
           onTouchStart={onTouchStart}
           onTouchMove={onTouchMove}
           onTouchEnd={onTouchEnd}
