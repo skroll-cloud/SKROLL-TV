@@ -99,9 +99,12 @@ export default function Home() {
   const [latestCommentByVideo, setLatestCommentByVideo] = useState({})
   const [commentAssignee, setCommentAssignee] = useState('')
   const [assignedTasks, setAssignedTasks] = useState([])
+  const [myVideoComments, setMyVideoComments] = useState([])
   const [userProfile, setUserProfile] = useState({ email: '', notify_weekly: false })
   const [profileSaving, setProfileSaving] = useState(false)
   const [profileMessage, setProfileMessage] = useState('')
+  const [showResolved, setShowResolved] = useState(false)
+  const [assigningCommentId, setAssigningCommentId] = useState(null)
 
   // Swipe state
   const [touchStart, setTouchStart] = useState(null)
@@ -162,6 +165,7 @@ export default function Home() {
       loadAudioCounts()
       loadAllComments()
       loadAssignedTasks()
+      loadMyVideoComments()
       loadUserProfile()
     }
   }, [currentUser])
@@ -175,6 +179,10 @@ export default function Home() {
     }
     if (currentSection === 'mes-videos') {
       loadVideos()
+    }
+    if (currentSection === 'espace-perso') {
+      loadAssignedTasks()
+      loadMyVideoComments()
     }
   }, [currentSection])
 
@@ -267,8 +275,33 @@ export default function Home() {
   }
 
   async function loadAssignedTasks() {
-    const { data } = await supabase.from('comments').select('*, videos(title)').eq('assignee', currentUser).order('created_at', { ascending: false })
+    const { data } = await supabase.from('comments').select('*, videos(title)').eq('assignee', currentUser).eq('resolved', false).order('created_at', { ascending: false })
     if (data) setAssignedTasks(data)
+  }
+
+  async function loadMyVideoComments() {
+    if (!currentUser) return
+    // Requête directe pour éviter la dépendance à l'état videos
+    const { data: myVideos } = await supabase.from('videos').select('id').or(`referent.eq.${currentUser},uploaded_by.eq.${currentUser}`)
+    const myVideoIds = (myVideos || []).map(v => v.id)
+    if (myVideoIds.length === 0) { setMyVideoComments([]); return }
+    const { data } = await supabase.from('comments').select('*, videos(title)').in('video_id', myVideoIds).eq('resolved', false).order('created_at', { ascending: false })
+    if (data) setMyVideoComments(data)
+  }
+
+  async function resolveComment(commentId, resolved) {
+    await supabase.from('comments').update({ resolved }).eq('id', commentId)
+    loadAllComments()
+    loadAssignedTasks()
+    loadMyVideoComments()
+  }
+
+  async function assignComment(commentId, assignee) {
+    await supabase.from('comments').update({ assignee: assignee || null }).eq('id', commentId)
+    setAssigningCommentId(null)
+    loadAllComments()
+    loadAssignedTasks()
+    loadMyVideoComments()
   }
 
   async function loadUserProfile() {
@@ -978,85 +1011,100 @@ export default function Home() {
             </div>
           )}
 
-          {currentSection === 'comments' && (
-            <div>
-              <h2 className="text-2xl md:text-3xl font-bold text-gray-900 mb-4">{allComments.length} commentaires</h2>
-              {allComments.length === 0 ? (
-                <div className="text-center py-12 text-gray-500">Aucun commentaire</div>
-              ) : (
-                <div className="space-y-6">
-                  {/* Group comments by video */}
-                  {(() => {
-                    const videoIds = [...new Set(allComments.map(c => c.video_id))]
-                    const videoCommentGroups = videoIds.map(videoId => {
-                      const videoComments = allComments.filter(c => c.video_id === videoId)
-                      const latestComment = videoComments[0]
-                      return { videoId, videoTitle: latestComment?.videos?.title, comments: videoComments, latestDate: latestComment?.created_at }
-                    }).sort((a, b) => new Date(b.latestDate) - new Date(a.latestDate))
-                    
-                    return videoCommentGroups.map(group => (
-                      <div key={group.videoId} className="bg-white rounded-xl shadow-sm overflow-hidden">
-                        {/* Video header */}
-                        <div className="bg-gray-50 px-4 py-3 border-b flex justify-between items-center">
-                          <button onClick={() => router.push(`/video/${group.videoId}`)} className="font-semibold text-blue-600 hover:underline">
-                            🎬 {group.videoTitle || 'Vidéo sans titre'}
-                          </button>
-                          <span className="text-sm text-gray-500">{group.comments.length} message{group.comments.length > 1 ? 's' : ''}</span>
-                        </div>
-                        
-                        {/* Comments thread */}
-                        <div className="p-4 space-y-3">
-                          {group.comments.slice().reverse().map(comment => (
-                            <div key={comment.id} className="flex gap-3">
-                              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold ${
-                                comment.user_id === 'Bertrand' ? 'bg-blue-500' : 
-                                comment.user_id === 'Sébastien' ? 'bg-green-500' : 'bg-purple-500'
-                              }`}>
-                                {comment.user_id?.charAt(0)}
-                              </div>
-                              <div className="flex-1">
-                                <div className="flex items-center gap-2">
-                                  <span className="font-medium text-sm">{comment.user_id}</span>
-                                  <span className="text-gray-400 text-xs">{formatDate(comment.created_at)}</span>
-                                </div>
-                                <p className="text-gray-700 text-sm mt-0.5">{comment.text}</p>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                        
-                        {/* Reply input */}
-                        <div className="px-4 pb-4">
-                          {replyTo === group.videoId ? (
-                            <div className="flex gap-2">
-                              <input 
-                                type="text" 
-                                value={replyText} 
-                                onChange={(e) => setReplyText(e.target.value)} 
-                                placeholder="Ajouter un commentaire..." 
-                                className="flex-1 border rounded-lg px-3 py-2 text-sm" 
-                                autoFocus 
-                                onKeyDown={(e) => { if (e.key === 'Enter') addReply(group.videoId) }}
-                              />
-                              <button onClick={() => addReply(group.videoId)} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm">Envoyer</button>
-                              <button onClick={() => setReplyTo(null)} className="text-gray-500 px-2">✕</button>
-                            </div>
-                          ) : (
-                            <button 
-                              onClick={() => setReplyTo(group.videoId)} 
-                              className="w-full text-left text-sm text-gray-400 border border-dashed rounded-lg px-3 py-2 hover:border-blue-400 hover:text-blue-500"
-                            >
-                              + Ajouter un commentaire...
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    ))
-                  })()}
+          {currentSection === 'comments' && (() => {
+            const unresolvedComments = allComments.filter(c => !c.resolved)
+            const resolvedComments = allComments.filter(c => c.resolved)
+            const displayComments = showResolved ? allComments : unresolvedComments
+            return (
+              <div>
+                <div className="flex items-center justify-between mb-5">
+                  <h2 className="text-2xl font-semibold text-gray-900">
+                    Commentaires <span className="text-gray-300 font-normal text-lg ml-1">{unresolvedComments.length}</span>
+                  </h2>
+                  {resolvedComments.length > 0 && (
+                    <button onClick={() => setShowResolved(v => !v)}
+                      className={`text-xs px-3 py-1.5 rounded-xl transition-colors ${showResolved ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>
+                      {showResolved ? `Masquer résolus (${resolvedComments.length})` : `Afficher résolus (${resolvedComments.length})`}
+                    </button>
+                  )}
                 </div>
-              )}
-            </div>
-          )}
+
+                {displayComments.length === 0 ? (
+                  <div className="text-center py-16 text-gray-400 text-sm">
+                    {showResolved ? 'Aucun commentaire' : 'Tous les commentaires sont résolus'}
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {displayComments.map(comment => {
+                      const isAssignedToMe = comment.assignee === currentUser
+                      const isResolved = !!comment.resolved
+                      return (
+                        <div key={comment.id}
+                          className={`flex items-start gap-3 p-3.5 rounded-xl border transition-all ${
+                            isResolved ? 'bg-gray-50 border-gray-100 opacity-60' :
+                            isAssignedToMe ? 'bg-blue-50 border-blue-100' :
+                            'bg-white border-gray-100'
+                          }`}>
+
+                          {/* Resolve checkbox */}
+                          <button onClick={() => resolveComment(comment.id, !isResolved)}
+                            className={`mt-0.5 w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${
+                              isResolved ? 'border-green-400 bg-green-400 text-white' : 'border-gray-300 hover:border-green-400'
+                            }`}>
+                            {isResolved && <span className="text-xs leading-none">✓</span>}
+                          </button>
+
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="flex-1 min-w-0">
+                                <p className={`text-sm ${isResolved ? 'line-through text-gray-400' : 'text-gray-800'}`}>{comment.text}</p>
+                                <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                                  <button onClick={() => router.push(`/video/${comment.video_id}`)}
+                                    className="text-xs text-blue-500 hover:underline truncate max-w-[200px]">
+                                    {comment.videos?.title || 'Vidéo'}
+                                  </button>
+                                  <span className="text-xs text-gray-400">· {comment.user_id?.split(' ')[0]} · {formatDate(comment.created_at)}</span>
+                                  {comment.assignee && (
+                                    <span className={`text-xs px-1.5 py-0.5 rounded-full ${isAssignedToMe ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-500'}`}>
+                                      → {comment.assignee.split(' ')[0]}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* Assign controls */}
+                              <div className="shrink-0">
+                                {assigningCommentId === comment.id ? (
+                                  <div className="flex items-center gap-1">
+                                    {['', 'Bertrand', 'Sébastien', 'Pierre Emmanuel'].map(name => (
+                                      <button key={name || 'none'} onClick={() => assignComment(comment.id, name)}
+                                        className={`text-xs px-1.5 py-0.5 rounded transition-colors ${
+                                          !name ? 'bg-gray-100 text-gray-500 hover:bg-gray-200' :
+                                          comment.assignee === name ? 'bg-blue-600 text-white' :
+                                          'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                                        }`}>
+                                        {name ? name.split(' ')[0] : '—'}
+                                      </button>
+                                    ))}
+                                    <button onClick={() => setAssigningCommentId(null)} className="text-xs text-gray-300 hover:text-gray-500 ml-1">✕</button>
+                                  </div>
+                                ) : (
+                                  <button onClick={() => setAssigningCommentId(comment.id)}
+                                    className="text-xs text-gray-400 hover:text-gray-700 px-2 py-0.5 rounded-lg hover:bg-gray-100 transition-colors whitespace-nowrap">
+                                    {comment.assignee ? 'Réassigner' : 'Assigner'}
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            )
+          })()}
 
           {(['en-attente', 'en-cours', 'a-supprimer', 'pad'].includes(currentSection)) && (() => {
             const meta = {
@@ -1242,6 +1290,51 @@ export default function Home() {
             <div className="max-w-2xl">
               <h2 className="text-2xl font-semibold text-gray-900 mb-6">Espace perso — {currentUser}</h2>
 
+              {/* Commentaires sur mes vidéos */}
+              <div className="bg-white rounded-2xl border border-gray-100 p-5 mb-5">
+                <h3 className="font-semibold text-base mb-3">
+                  Commentaires sur mes vidéos
+                  <span className="ml-2 text-sm font-normal text-gray-400">{myVideoComments.length}</span>
+                </h3>
+                {myVideoComments.length === 0 ? (
+                  <p className="text-sm text-gray-400">Aucun commentaire récent sur vos vidéos.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {myVideoComments.slice(0, 10).map(comment => (
+                      <div key={comment.id} className={`flex items-start gap-3 p-3 rounded-xl ${comment.assignee ? 'bg-blue-50' : 'bg-gray-50'}`}>
+                        <div className={`w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0 ${
+                          comment.user_id === 'Bertrand' ? 'bg-blue-500' :
+                          comment.user_id === 'Sébastien' ? 'bg-green-500' : 'bg-purple-500'
+                        }`}>
+                          {comment.user_id?.charAt(0)}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-gray-800">{comment.text}</p>
+                          <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                            <button onClick={() => router.push(`/video/${comment.video_id}`)}
+                              className="text-xs text-blue-500 hover:underline truncate max-w-[150px]">
+                              {comment.videos?.title || 'Vidéo'}
+                            </button>
+                            <span className="text-xs text-gray-400">· {comment.user_id} · {formatDate(comment.created_at)}</span>
+                            {comment.assignee && (
+                              <span className="text-xs bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded-full">→ {comment.assignee.split(' ')[0]}</span>
+                            )}
+                          </div>
+                        </div>
+                        <button onClick={() => resolveComment(comment.id, true)}
+                          title="Marquer comme résolu"
+                          className="shrink-0 mt-0.5 w-5 h-5 rounded-full border-2 border-gray-300 hover:border-green-400 hover:bg-green-50 flex items-center justify-center text-transparent hover:text-green-500 transition-colors text-xs">
+                          ✓
+                        </button>
+                      </div>
+                    ))}
+                    {myVideoComments.length > 10 && (
+                      <p className="text-xs text-gray-400 text-center pt-1">+{myVideoComments.length - 10} autres commentaires</p>
+                    )}
+                  </div>
+                )}
+              </div>
+
               {/* Mes tâches assignées */}
               <div className="bg-white rounded-2xl border border-gray-100 p-5 mb-5">
                 <h3 className="font-semibold text-base mb-3">Mes tâches ({assignedTasks.length})</h3>
@@ -1251,7 +1344,9 @@ export default function Home() {
                   <div className="space-y-2">
                     {assignedTasks.map(task => (
                       <div key={task.id} className="flex items-start gap-3 p-3 bg-gray-50 rounded-xl">
-                        <span className="text-blue-500 mt-0.5">→</span>
+                        <button onClick={() => resolveComment(task.id, true)}
+                          className="mt-0.5 w-5 h-5 rounded-full border-2 border-gray-300 hover:border-green-400 flex items-center justify-center shrink-0 transition-colors">
+                        </button>
                         <div className="flex-1">
                           <p className="text-sm text-gray-800">{task.text}</p>
                           <p className="text-xs text-gray-400 mt-0.5">

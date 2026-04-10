@@ -64,6 +64,7 @@ export default function VideoPage({ params }) {
   const [comments, setComments] = useState([])
   const [newComment, setNewComment] = useState('')
   const [commentAssignee, setCommentAssignee] = useState('')
+  const [assigningCommentId, setAssigningCommentId] = useState(null)
   const [audioTracks, setAudioTracks] = useState([])
   const [uploadingAudio, setUploadingAudio] = useState(false)
   const [videoTypes, setVideoTypes] = useState([])
@@ -120,6 +121,17 @@ export default function VideoPage({ params }) {
   async function loadComments(videoId) {
     const { data } = await supabase.from('comments').select('*').eq('video_id', videoId).order('created_at', { ascending: true })
     if (data) setComments(data)
+  }
+
+  async function resolveComment(commentId, resolved) {
+    await supabase.from('comments').update({ resolved }).eq('id', commentId)
+    loadComments(id)
+  }
+
+  async function assignComment(commentId, assignee) {
+    await supabase.from('comments').update({ assignee: assignee || null }).eq('id', commentId)
+    setAssigningCommentId(null)
+    loadComments(id)
   }
 
   async function loadAudioTracks(videoId) {
@@ -420,22 +432,60 @@ export default function VideoPage({ params }) {
             <div className="mb-5 bg-white rounded-2xl p-4 border border-gray-100">
               <h2 className="font-semibold text-base mb-3">Commentaires {comments.length > 0 && <span className="text-gray-400 font-normal text-sm">({comments.length})</span>}</h2>
               {comments.length > 0 && (
-                <div className="space-y-3 mb-4 max-h-80 overflow-y-auto">
-                  {comments.map(c => (
-                    <div key={c.id} className="flex gap-3">
-                      <div className={`w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0 ${c.user_id === 'Bertrand' ? 'bg-blue-400' : c.user_id === 'Sébastien' ? 'bg-emerald-400' : 'bg-violet-400'}`}>
-                        {c.user_id?.charAt(0)}
-                      </div>
-                      <div className="flex-1">
-                        <div className="flex items-baseline gap-2 mb-0.5 flex-wrap">
-                          <span className="font-medium text-sm">{c.user_id}</span>
-                          {c.assignee && <span className="text-xs bg-blue-100 text-blue-600 rounded-full px-2 py-0.5">→ {c.assignee.split(' ')[0]}</span>}
-                          <span className="text-gray-400 text-xs">{formatDate(c.created_at)}</span>
+                <div className="space-y-2 mb-4 max-h-96 overflow-y-auto">
+                  {comments.map(c => {
+                    const isResolved = !!c.resolved
+                    const isAssignedToMe = c.assignee === currentUser
+                    return (
+                      <div key={c.id} className={`flex gap-2.5 p-2.5 rounded-xl transition-all ${isResolved ? 'opacity-50' : isAssignedToMe ? 'bg-blue-50' : 'bg-gray-50'}`}>
+                        {/* Resolve checkbox */}
+                        <button onClick={() => resolveComment(c.id, !isResolved)}
+                          className={`mt-0.5 w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${
+                            isResolved ? 'border-green-400 bg-green-400 text-white' : 'border-gray-300 hover:border-green-400'
+                          }`}>
+                          {isResolved && <span className="text-xs leading-none" style={{fontSize:'8px'}}>✓</span>}
+                        </button>
+                        <div className={`w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0 ${c.user_id === 'Bertrand' ? 'bg-blue-400' : c.user_id === 'Sébastien' ? 'bg-emerald-400' : 'bg-violet-400'}`}>
+                          {c.user_id?.charAt(0)}
                         </div>
-                        <p className="text-gray-700 text-sm">{c.text}</p>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-start justify-between gap-1">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-baseline gap-1.5 mb-0.5 flex-wrap">
+                                <span className="font-medium text-xs">{c.user_id?.split(' ')[0]}</span>
+                                {c.assignee && (
+                                  <span className={`text-xs rounded-full px-1.5 py-0.5 ${isAssignedToMe ? 'bg-blue-100 text-blue-600' : 'bg-gray-200 text-gray-500'}`}>
+                                    → {c.assignee.split(' ')[0]}
+                                  </span>
+                                )}
+                                <span className="text-gray-400 text-xs">{formatDate(c.created_at)}</span>
+                              </div>
+                              <p className={`text-sm ${isResolved ? 'line-through text-gray-400' : 'text-gray-700'}`}>{c.text}</p>
+                            </div>
+                            {/* Assign */}
+                            <div className="shrink-0">
+                              {assigningCommentId === c.id ? (
+                                <div className="flex items-center gap-0.5">
+                                  {['', 'Bertrand', 'Sébastien', 'Pierre Emmanuel'].map(name => (
+                                    <button key={name || 'none'} onClick={() => assignComment(c.id, name)}
+                                      className={`text-xs px-1 py-0.5 rounded ${!name ? 'bg-gray-100 text-gray-500' : c.assignee === name ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500'}`}>
+                                      {name ? name.split(' ')[0] : '—'}
+                                    </button>
+                                  ))}
+                                  <button onClick={() => setAssigningCommentId(null)} className="text-gray-300 ml-0.5 text-xs">✕</button>
+                                </div>
+                              ) : (
+                                <button onClick={() => setAssigningCommentId(c.id)}
+                                  className="text-xs text-gray-300 hover:text-gray-500 px-1">
+                                  {c.assignee ? '↩' : '+'}
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               )}
               <div className="flex gap-2 mb-2">
