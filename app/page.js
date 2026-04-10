@@ -115,6 +115,8 @@ export default function Home() {
   
   const [ideas, setIdeas] = useState([])
   const [newIdea, setNewIdea] = useState({ title: '', description: '', tags: '', link_url: '' })
+  const [editingIdea, setEditingIdea] = useState(null)
+  const [showAddIdeaForm, setShowAddIdeaForm] = useState(false)
   
   const [contacts, setContacts] = useState([])
   const [newContact, setNewContact] = useState({ name: '', type: 'Journaliste', contact: '', status: 'À contacter', notes: '' })
@@ -1337,81 +1339,102 @@ export default function Home() {
           )}
 
           {currentSection === 'ideas' && (
-            <div>
-              <h2 className="text-2xl md:text-3xl font-bold text-gray-900 mb-4">💡 Idées</h2>
-
-              {/* Formulaire nouvelle idée */}
-              <div className="bg-white rounded-xl p-4 shadow-sm mb-6">
-                <input
-                  type="text"
-                  placeholder="Titre de l'idée..."
-                  value={newIdea.title}
-                  onChange={(e) => setNewIdea({...newIdea, title: e.target.value})}
-                  className="w-full border rounded-lg px-3 py-2 mb-2 font-medium"
-                />
-                <textarea
-                  placeholder="Description, contexte, détails..."
-                  value={newIdea.description}
-                  onChange={(e) => setNewIdea({...newIdea, description: e.target.value})}
-                  rows={3}
-                  className="w-full border rounded-lg px-3 py-2 mb-2 text-sm resize-none"
-                />
-                <input
-                  type="url"
-                  placeholder="🔗 Lien de référence (YouTube, Instagram, Facebook, TikTok...)"
-                  value={newIdea.link_url}
-                  onChange={(e) => setNewIdea({...newIdea, link_url: e.target.value})}
-                  className="w-full border rounded-lg px-3 py-2 mb-2 text-sm"
-                />
-                {newIdea.link_url && (
-                  <div className="mb-2">{renderLinkPreview(newIdea.link_url)}</div>
-                )}
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    placeholder="Tags (séparés par virgules)"
-                    value={newIdea.tags}
-                    onChange={(e) => setNewIdea({...newIdea, tags: e.target.value})}
-                    className="flex-1 border rounded-lg px-3 py-2 text-sm"
-                  />
-                  <button onClick={createIdea} className="bg-blue-600 text-white px-5 py-2 rounded-lg font-medium">Ajouter</button>
-                </div>
-              </div>
-
-              {/* Liste des idées */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {ideas.map(idea => (
-                  <div key={idea.id} className={`bg-white rounded-xl p-4 shadow-sm border-l-4 ${idea.status === 'Validée' ? 'border-green-400' : idea.status === 'Rejetée' ? 'border-red-300' : idea.status === 'En réflexion' ? 'border-yellow-400' : 'border-blue-300'}`}>
-                    <div className="flex justify-between items-start mb-2">
-                      <h3 className="font-semibold text-base leading-tight flex-1 pr-2">{idea.title}</h3>
-                      <button onClick={() => deleteIdea(idea.id)} className="text-red-400 hover:text-red-600 shrink-0">🗑</button>
-                    </div>
-                    {idea.description && (
-                      <p className="text-gray-600 text-sm mb-3 leading-relaxed">{idea.description}</p>
-                    )}
-                    {idea.tags && idea.tags.length > 0 && (
-                      <div className="flex flex-wrap gap-1 mb-3">
-                        {(Array.isArray(idea.tags) ? idea.tags : idea.tags.split(',')).filter(t => t).map((tag, i) => (
-                          <span key={i} className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">{tag.trim()}</span>
-                        ))}
+            <div className="max-w-3xl">
+              {/* Modal d'édition */}
+              {editingIdea && (
+                <div className="fixed inset-0 bg-black/40 z-50 flex items-start justify-center pt-10 px-4" onClick={() => setEditingIdea(null)}>
+                  <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+                    <div className="flex items-center justify-between p-5 border-b border-gray-100">
+                      <div className="flex items-center gap-2">
+                        <select value={editingIdea.status} onChange={e => setEditingIdea({...editingIdea, status: e.target.value})}
+                          className={`text-xs font-medium px-2.5 py-1 rounded-full border-0 focus:outline-none ${editingIdea.status === 'Validée' ? 'bg-green-100 text-green-700' : editingIdea.status === 'Rejetée' ? 'bg-red-100 text-red-600' : editingIdea.status === 'En réflexion' ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-500'}`}>
+                          <option>Nouvelle</option>
+                          <option>En réflexion</option>
+                          <option>Validée</option>
+                          <option>Rejetée</option>
+                        </select>
+                        <span className="text-xs text-gray-400">{formatDate(editingIdea.created_at)}</span>
                       </div>
-                    )}
-                    {idea.link_url && renderLinkPreview(idea.link_url)}
-                    <div className="flex justify-between items-center mt-3 pt-3 border-t border-gray-100">
-                      <select
-                        value={idea.status}
-                        onChange={(e) => updateIdea({...idea, status: e.target.value})}
-                        className={`text-xs border rounded px-2 py-1 font-medium ${idea.status === 'Validée' ? 'bg-green-50 text-green-700 border-green-200' : idea.status === 'Rejetée' ? 'bg-red-50 text-red-600 border-red-200' : idea.status === 'En réflexion' ? 'bg-yellow-50 text-yellow-700 border-yellow-200' : 'bg-blue-50 text-blue-600 border-blue-200'}`}
-                      >
-                        <option>Nouvelle</option>
-                        <option>En réflexion</option>
-                        <option>Validée</option>
-                        <option>Rejetée</option>
-                      </select>
-                      <span className="text-xs text-gray-400">{formatDate(idea.created_at)}</span>
+                      <div className="flex gap-2">
+                        <button onClick={() => { deleteIdea(editingIdea.id); setEditingIdea(null) }} className="text-xs text-gray-400 hover:text-red-500 px-2 py-1">Supprimer</button>
+                        <button onClick={() => { updateIdea(editingIdea); setEditingIdea(null) }} className="text-xs bg-gray-900 text-white px-3 py-1.5 rounded-lg">Sauvegarder</button>
+                        <button onClick={() => setEditingIdea(null)} className="text-gray-400 hover:text-gray-700 text-lg leading-none ml-1">×</button>
+                      </div>
+                    </div>
+                    <div className="p-5 overflow-y-auto flex flex-col gap-3">
+                      <input type="text" value={editingIdea.title} onChange={e => setEditingIdea({...editingIdea, title: e.target.value})}
+                        className="w-full text-lg font-semibold text-gray-900 border-0 focus:outline-none focus:ring-1 focus:ring-gray-200 rounded-lg px-1 -ml-1" placeholder="Titre..." />
+                      <textarea value={editingIdea.description || ''} onChange={e => setEditingIdea({...editingIdea, description: e.target.value})}
+                        rows={12} placeholder="Description, contexte, détails..."
+                        className="w-full text-sm text-gray-700 border border-gray-100 focus:outline-none focus:border-gray-300 rounded-xl px-3 py-2.5 resize-none leading-relaxed" />
+                      <input type="url" value={editingIdea.link_url || ''} onChange={e => setEditingIdea({...editingIdea, link_url: e.target.value})}
+                        placeholder="Lien de référence..." className="w-full text-sm border border-gray-100 focus:outline-none focus:border-gray-300 rounded-xl px-3 py-2" />
+                      {editingIdea.link_url && <div>{renderLinkPreview(editingIdea.link_url)}</div>}
+                      <input type="text" value={Array.isArray(editingIdea.tags) ? editingIdea.tags.join(', ') : (editingIdea.tags || '')}
+                        onChange={e => setEditingIdea({...editingIdea, tags: e.target.value.split(',').map(t => t.trim()).filter(t => t)})}
+                        placeholder="Tags séparés par virgules" className="w-full text-sm border border-gray-100 focus:outline-none focus:border-gray-300 rounded-xl px-3 py-2" />
                     </div>
                   </div>
-                ))}
+                </div>
+              )}
+
+              {/* Header */}
+              <div className="flex items-center justify-between mb-5">
+                <h2 className="text-2xl font-semibold text-gray-900">Idées <span className="text-gray-300 font-normal text-lg ml-1">{ideas.length}</span></h2>
+                <button onClick={() => setShowAddIdeaForm(v => !v)} className={`text-sm px-3 py-1.5 rounded-xl transition-colors ${showAddIdeaForm ? 'bg-gray-200 text-gray-600' : 'bg-gray-900 text-white'}`}>
+                  {showAddIdeaForm ? 'Annuler' : '+ Nouvelle'}
+                </button>
+              </div>
+
+              {/* Formulaire (repliable) */}
+              {showAddIdeaForm && (
+                <div className="bg-white rounded-2xl border border-gray-100 p-4 mb-5 space-y-2">
+                  <input type="text" placeholder="Titre..." value={newIdea.title} onChange={e => setNewIdea({...newIdea, title: e.target.value})}
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-gray-400" autoFocus />
+                  <textarea placeholder="Description..." value={newIdea.description} onChange={e => setNewIdea({...newIdea, description: e.target.value})}
+                    rows={4} className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-gray-400 resize-none" />
+                  <input type="url" placeholder="Lien de référence..." value={newIdea.link_url} onChange={e => setNewIdea({...newIdea, link_url: e.target.value})}
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-gray-400" />
+                  <div className="flex gap-2">
+                    <input type="text" placeholder="Tags (virgules)" value={newIdea.tags} onChange={e => setNewIdea({...newIdea, tags: e.target.value})}
+                      className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-gray-400" />
+                    <button onClick={() => { createIdea(); setShowAddIdeaForm(false) }} className="bg-gray-900 text-white px-4 py-2 rounded-xl text-sm">Ajouter</button>
+                  </div>
+                </div>
+              )}
+
+              {/* Liste compacte */}
+              <div className="space-y-1">
+                {ideas.map(idea => {
+                  const tags = Array.isArray(idea.tags) ? idea.tags : (idea.tags || '').split(',').map(t => t.trim()).filter(t => t)
+                  const statusCls = idea.status === 'Validée' ? 'bg-green-100 text-green-700' : idea.status === 'Rejetée' ? 'bg-red-100 text-red-500' : idea.status === 'En réflexion' ? 'bg-orange-100 text-orange-600' : 'bg-gray-100 text-gray-400'
+                  return (
+                    <button key={idea.id} onClick={() => setEditingIdea({...idea, tags: tags.join(', ')})}
+                      className="w-full text-left bg-white hover:bg-gray-50 rounded-xl px-4 py-3 border border-gray-100 hover:border-gray-200 transition-all group">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-gray-800 truncate">{idea.title}</p>
+                          {idea.description && (
+                            <p className="text-xs text-gray-400 mt-0.5 truncate">{idea.description.substring(0, 100)}</p>
+                          )}
+                          {tags.length > 0 && (
+                            <div className="flex gap-1 mt-1.5 flex-wrap">
+                              {tags.slice(0, 4).map((tag, i) => (
+                                <span key={i} className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">{tag}</span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0 pt-0.5">
+                          <span className={`text-xs px-2 py-0.5 rounded-full ${statusCls}`}>{idea.status}</span>
+                          <span className="text-xs text-gray-300">{formatDate(idea.created_at)}</span>
+                          <span className="text-gray-300 group-hover:text-gray-500 text-sm">›</span>
+                        </div>
+                      </div>
+                    </button>
+                  )
+                })}
+                {ideas.length === 0 && <p className="text-center py-12 text-gray-300 text-sm">Aucune idée pour l'instant</p>}
               </div>
             </div>
           )}
