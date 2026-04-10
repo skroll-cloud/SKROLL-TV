@@ -84,6 +84,7 @@ export default function Home() {
   const [filterType, setFilterType] = useState('all')
   const [filterValidation, setFilterValidation] = useState('all')
   const [sortBy, setSortBy] = useState('recent')
+  const [statusFilter, setStatusFilter] = useState('all')
   const [searchQuery, setSearchQuery] = useState('')
   const [newTypeName, setNewTypeName] = useState('')
   const [selectedVideos, setSelectedVideos] = useState(new Set())
@@ -548,6 +549,10 @@ export default function Home() {
     filteredVideos = filteredVideos.filter(v => !!v[vc])
   }
 
+  if (statusFilter !== 'all') {
+    filteredVideos = filteredVideos.filter(v => getVideoStatus(v) === statusFilter)
+  }
+
   if (sortBy === 'recent_comments') {
     filteredVideos = [...filteredVideos].sort((a, b) => {
       const aDate = latestCommentByVideo[a.id] || '1970-01-01'
@@ -658,155 +663,160 @@ export default function Home() {
 
       {/* Mobile menu overlay */}
       {mobileMenuOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-40 md:hidden" onClick={() => setMobileMenuOpen(false)}>
-          <div className="bg-white w-64 h-full p-6" onClick={e => e.stopPropagation()}>
-            <div className="flex justify-between items-center mb-8">
-              <h2 className="text-xl font-bold text-blue-600">SKROLL.TV</h2>
-              <button onClick={() => setMobileMenuOpen(false)} className="text-gray-400 text-xl">✕</button>
+        <div className="fixed inset-0 bg-black bg-opacity-40 z-40 md:hidden" onClick={() => setMobileMenuOpen(false)}>
+          <div className="bg-white w-60 h-full p-5" onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-lg font-bold text-blue-600">SKROLL.TV</h2>
+              <button onClick={() => setMobileMenuOpen(false)} className="text-gray-300 text-xl">✕</button>
             </div>
-            <ul className="space-y-1">
+            <ul className="space-y-0.5">
               {[
-                {id:'videos', label:'Toutes les vidéos'},
-                {id:'en-attente', label:`En attente (${enAttenteCount})`},
-                {id:'en-cours', label:`En cours (${enCoursCount})`},
-                {id:'pad', label:`PAD (${padCount})`},
-                {id:'a-supprimer', label:`À supprimer (${aSupprimerCount})`},
+                {id:'videos', label:'Vidéos'},
+                {id:'comments', label:`Commentaires (${allComments.length})`},
+                {id:'tasks', label:'Tâches'},
+                {id:'ideas', label:'Idées'},
+                {id:'contacts', label:'Contacts'},
+                {id:'files', label:'Fichiers'},
               ].map((item) => (
                 <li key={item.id}>
-                  <button onClick={() => { setCurrentSection(item.id); setMobileMenuOpen(false) }} className={`w-full text-left px-3 py-2.5 rounded-xl text-sm ${currentSection === item.id ? 'bg-blue-50 text-blue-600 font-medium' : 'text-gray-600'}`}>
+                  <button onClick={() => { setCurrentSection(item.id); setMobileMenuOpen(false) }} className={`w-full text-left px-3 py-2 rounded-lg text-sm ${currentSection === item.id ? 'bg-blue-50 text-blue-600 font-medium' : 'text-gray-600'}`}>
                     {item.label}
                   </button>
                 </li>
               ))}
             </ul>
-            <div className="mt-6 pt-6 border-t border-gray-100">
-              <button onClick={() => { setCurrentSection('espace-perso'); setMobileMenuOpen(false) }} className={`w-full text-left px-3 py-2.5 rounded-xl text-sm ${currentSection === 'espace-perso' ? 'bg-blue-50 text-blue-600 font-medium' : 'text-gray-600'}`}>
+            <div className="mt-5 pt-5 border-t border-gray-100">
+              <button onClick={() => { setCurrentSection('espace-perso'); setMobileMenuOpen(false) }} className={`w-full text-left px-3 py-2 rounded-lg text-sm ${currentSection === 'espace-perso' ? 'bg-blue-50 text-blue-600 font-medium' : 'text-gray-600'}`}>
                 Espace perso
               </button>
-              <button onClick={handleLogout} className="mt-4 text-sm text-red-400 px-3">Déconnexion</button>
             </div>
           </div>
         </div>
       )}
 
       {/* Header */}
-      <header className="bg-white border-b sticky top-0 z-30 shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 md:px-6 py-3 md:py-4 flex justify-between items-center">
+      <header className="bg-white border-b sticky top-0 z-30">
+        <div className="px-4 md:px-6 py-3 flex justify-between items-center">
           <div className="flex items-center gap-3">
-            <button onClick={() => setMobileMenuOpen(true)} className="md:hidden text-2xl">☰</button>
-            <h1 className="text-xl md:text-2xl font-bold text-blue-600">SKROLL.TV</h1>
+            <button onClick={() => setMobileMenuOpen(true)} className="md:hidden text-gray-500 text-xl">☰</button>
+            <h1 className="text-lg font-bold text-blue-600 tracking-tight">SKROLL.TV</h1>
           </div>
-          <div className="flex items-center gap-2 md:gap-4">
-            {toValidateCount > 0 && <span className="bg-red-500 text-white text-xs px-2 py-1 rounded-full">{toValidateCount}</span>}
-            <span className="hidden md:inline text-gray-700">{currentUser}</span>
-            <button onClick={() => setShowPasswordModal(true)} className="hidden md:block px-3 py-2 bg-gray-100 rounded-lg text-sm">🔐</button>
-            <button onClick={handleLogout} className="hidden md:block px-4 py-2 bg-gray-100 rounded-lg text-sm">Déconnexion</button>
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-gray-500 hidden md:inline">{currentUser}</span>
+            <button onClick={handleLogout} className="text-sm text-gray-400 hover:text-gray-700">Déconnexion</button>
           </div>
         </div>
       </header>
 
       <div className="flex">
         {/* Desktop sidebar */}
-        <nav className="hidden md:block w-56 bg-white border-r fixed left-0 top-[65px] bottom-0 overflow-y-auto">
-          <ul className="p-4 space-y-0.5">
+        <nav className="hidden md:flex flex-col w-48 bg-white border-r fixed left-0 top-[49px] bottom-0">
+          <ul className="p-3 space-y-0.5 flex-1">
             {[
-              {id:'videos', label:'Toutes les vidéos'},
-              {id:'en-attente', label:`En attente (${enAttenteCount})`},
-              {id:'en-cours', label:`En cours (${enCoursCount})`},
-              {id:'pad', label:`PAD (${padCount})`},
-              {id:'a-supprimer', label:`À supprimer (${aSupprimerCount})`},
+              {id:'videos', label:'Vidéos'},
+              {id:'comments', label:`Commentaires (${allComments.length})`},
+              {id:'tasks', label:'Tâches'},
+              {id:'ideas', label:'Idées'},
+              {id:'contacts', label:'Contacts'},
+              {id:'files', label:'Fichiers'},
             ].map((item) => (
               <li key={item.id}>
-                <button onClick={() => setCurrentSection(item.id)} className={`w-full text-left px-3 py-2.5 rounded-xl text-sm transition-colors ${currentSection === item.id ? 'bg-blue-50 text-blue-600 font-medium' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'}`}>
+                <button onClick={() => setCurrentSection(item.id)} className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${currentSection === item.id ? 'bg-blue-50 text-blue-600 font-medium' : 'text-gray-500 hover:text-gray-800'}`}>
                   {item.label}
                 </button>
               </li>
             ))}
           </ul>
-          <div className="p-4 pt-2 border-t border-gray-100 mt-2">
-            <button onClick={() => setCurrentSection('espace-perso')} className={`w-full text-left px-3 py-2.5 rounded-xl text-sm transition-colors ${currentSection === 'espace-perso' ? 'bg-blue-50 text-blue-600 font-medium' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'}`}>
+          <div className="p-3 border-t border-gray-100">
+            <button onClick={() => setCurrentSection('espace-perso')} className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${currentSection === 'espace-perso' ? 'bg-blue-50 text-blue-600 font-medium' : 'text-gray-500 hover:text-gray-800'}`}>
               Espace perso
             </button>
           </div>
         </nav>
 
         {/* Main content */}
-        <main className="md:ml-56 p-4 md:p-8 w-full">
+        <main className="md:ml-48 p-4 md:p-8 w-full">
           {currentSection === 'videos' && (
             <div>
-              <div className="mb-4 md:mb-6 flex flex-col md:flex-row justify-between items-start gap-4">
-                <div>
-                  <h2 className="text-2xl md:text-3xl font-bold text-gray-900 mb-1">{filteredVideos.length} vidéos</h2>
+              {/* Header row */}
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-2xl font-semibold text-gray-900">{filteredVideos.length} vidéos</h2>
+                <div className="flex items-center gap-2">
+                  {isMobile ? (
+                    <div className="flex gap-1 bg-gray-100 rounded-xl p-1">
+                      <button onClick={() => setMobileViewMode('swipe')} className={`px-3 py-1 rounded-lg text-sm font-medium transition-colors ${mobileViewMode === 'swipe' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}>Swipe</button>
+                      <button onClick={() => setMobileViewMode('grid')} className={`px-3 py-1 rounded-lg text-sm font-medium transition-colors ${mobileViewMode === 'grid' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}>Grille</button>
+                    </div>
+                  ) : (
+                    <div className="flex gap-1 bg-gray-100 rounded-xl p-1">
+                      <button onClick={() => setViewMode('grid')} className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${viewMode === 'grid' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}>Grille</button>
+                      <button onClick={() => setViewMode('table')} className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${viewMode === 'table' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}>Tableau</button>
+                    </div>
+                  )}
                 </div>
-                
-                {/* Mobile: toggle swipe/grid */}
-                {isMobile && (
-                  <div className="flex gap-2 w-full">
-                    <button onClick={() => setMobileViewMode('swipe')} className={`flex-1 py-2 rounded-lg text-sm ${mobileViewMode === 'swipe' ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}>📱 Swipe</button>
-                    <button onClick={() => setMobileViewMode('grid')} className={`flex-1 py-2 rounded-lg text-sm ${mobileViewMode === 'grid' ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}>⊞ Grille</button>
-                  </div>
-                )}
-                
-                {/* Desktop: grid/table toggle */}
-                {!isMobile && (
-                  <div className="flex gap-2">
-                    <button onClick={() => setViewMode('grid')} className={`px-3 py-2 rounded ${viewMode === 'grid' ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}>Grille</button>
-                    <button onClick={() => setViewMode('table')} className={`px-3 py-2 rounded ${viewMode === 'table' ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}>Tableau</button>
-                  </div>
-                )}
               </div>
 
-              {/* Upload zone */}
+              {/* Status tag filters */}
+              <div className="flex gap-2 flex-wrap mb-5">
+                {[
+                  {val:'all', label:'Toutes', count: videos.length, cls:'bg-gray-900 text-white', idle:'bg-gray-100 text-gray-500'},
+                  {val:'En attente', label:'En attente', count: enAttenteCount, cls:'bg-gray-200 text-gray-700', idle:'bg-gray-50 text-gray-400'},
+                  {val:'En cours', label:'En cours', count: enCoursCount, cls:'bg-orange-100 text-orange-700', idle:'bg-gray-50 text-gray-400'},
+                  {val:'PAD', label:'PAD', count: padCount, cls:'bg-green-100 text-green-700', idle:'bg-gray-50 text-gray-400'},
+                  {val:'À supprimer', label:'À supprimer', count: aSupprimerCount, cls:'bg-red-100 text-red-600', idle:'bg-gray-50 text-gray-400'},
+                ].map(tag => (
+                  <button key={tag.val}
+                    onClick={() => { setStatusFilter(tag.val); setCurrentVideoIndex(0) }}
+                    className={`px-3 py-1.5 rounded-full text-sm font-medium transition-all ${statusFilter === tag.val ? tag.cls : tag.idle + ' hover:bg-gray-100 hover:text-gray-600'}`}>
+                    {tag.label}{tag.count > 0 ? ` · ${tag.count}` : ''}
+                  </button>
+                ))}
+              </div>
+
+              {/* Upload zone — compact */}
               <label className="block mb-4 cursor-pointer">
-                <div className="border-2 border-dashed border-gray-300 hover:border-blue-500 rounded-xl p-4 md:p-6 text-center bg-white transition-colors">
+                <div className="border border-dashed border-gray-200 hover:border-gray-400 rounded-xl p-3 bg-white transition-colors flex items-center gap-3">
                   <input type="file" accept="video/*" multiple onChange={handleVideoUpload} disabled={uploading} className="hidden" />
-                  <div className="text-2xl md:text-3xl mb-1">📤</div>
-                  <div className="text-sm md:text-base font-medium text-gray-700">{uploading ? uploadStatus : 'Cliquez pour uploader des vidéos'}</div>
-                  <div className="text-xs text-gray-500">MP4, MOV - Sélection multiple</div>
+                  <span className="text-gray-400 text-lg">↑</span>
+                  <div className="flex-1">
+                    <span className="text-sm text-gray-500">{uploading ? uploadStatus : 'Uploader des vidéos'}</span>
+                    {!uploading && <span className="text-xs text-gray-300 ml-2">MP4, MOV</span>}
+                  </div>
                   {uploading && (
-                    <div className="mt-3 max-w-xs mx-auto">
-                      <div className="w-full bg-gray-200 rounded-full h-2">
-                        <div className="bg-blue-600 h-2 rounded-full transition-all" style={{width:`${uploadProgress}%`}}></div>
-                      </div>
+                    <div className="w-24 bg-gray-200 rounded-full h-1.5">
+                      <div className="bg-blue-500 h-1.5 rounded-full transition-all" style={{width:`${uploadProgress}%`}} />
                     </div>
                   )}
                 </div>
               </label>
-              
-              {/* Search */}
-              <div className="mb-4">
-                <input type="text" placeholder="🔍 Rechercher..." value={searchQuery} onChange={(e) => { setSearchQuery(e.target.value); setCurrentVideoIndex(0) }} className="w-full border rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500" />
-              </div>
-              
-              {/* Filters */}
-              <div className="mb-4 flex flex-wrap gap-2">
-                <select value={filterValidation} onChange={(e) => { setFilterValidation(e.target.value); setCurrentVideoIndex(0) }} className="border rounded-lg px-3 py-2 text-sm">
-                  <option value="all">Toutes</option>
-                  <option value="to_validate">🔴 À valider</option>
-                  <option value="validated">✅ Validées par moi</option>
-                </select>
-                <select value={filterType} onChange={(e) => { setFilterType(e.target.value); setCurrentVideoIndex(0) }} className="border rounded-lg px-3 py-2 text-sm">
+
+              {/* Search + filters row */}
+              <div className="flex gap-2 mb-4 flex-wrap">
+                <input type="text" placeholder="Rechercher..." value={searchQuery} onChange={(e) => { setSearchQuery(e.target.value); setCurrentVideoIndex(0) }} className="flex-1 min-w-[180px] border border-gray-200 rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-gray-300 bg-white" />
+                <select value={filterType} onChange={(e) => { setFilterType(e.target.value); setCurrentVideoIndex(0) }} className="border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-500 bg-white focus:outline-none">
                   <option value="all">Tous types</option>
                   {videoTypes.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                 </select>
-                <select value={sortBy} onChange={(e) => { setSortBy(e.target.value); setCurrentVideoIndex(0) }} className="border rounded-lg px-3 py-2 text-sm">
-                  <option value="recent">📅 Récentes</option>
-                  <option value="recent_comments">💬 Commentaires récents</option>
-                  <option value="most_comments">🔥 Plus commentées</option>
+                <select value={sortBy} onChange={(e) => { setSortBy(e.target.value); setCurrentVideoIndex(0) }} className="border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-500 bg-white focus:outline-none">
+                  <option value="recent">Récentes</option>
+                  <option value="recent_comments">Commentaires récents</option>
+                  <option value="most_comments">Plus commentées</option>
                 </select>
               </div>
 
-              {/* Types management (desktop only) */}
+              {/* Types management */}
               {!isMobile && (
-                <div className="mb-4 flex flex-wrap gap-2 items-center">
-                  <input type="text" placeholder="Nouveau type..." value={newTypeName} onChange={(e) => setNewTypeName(e.target.value)} className="border rounded-lg px-3 py-2 text-sm" />
-                  <button onClick={addVideoType} className="bg-green-600 text-white px-3 py-2 rounded-lg text-sm">+ Ajouter</button>
+                <div className="mb-4 flex flex-wrap gap-1.5 items-center">
                   {videoTypes.map(t => (
-                    <span key={t.id} className="inline-flex items-center gap-1 bg-gray-100 px-3 py-1 rounded-full text-sm">
+                    <span key={t.id} className="inline-flex items-center gap-1 bg-gray-100 text-gray-600 px-2.5 py-1 rounded-full text-xs">
                       {t.name}
-                      <button onClick={() => deleteVideoType(t.id)} className="text-red-500 ml-1">×</button>
+                      <button onClick={() => deleteVideoType(t.id)} className="text-gray-400 hover:text-red-500 ml-0.5">×</button>
                     </span>
                   ))}
+                  <div className="flex items-center gap-1 ml-1">
+                    <input type="text" placeholder="+ Type..." value={newTypeName} onChange={(e) => setNewTypeName(e.target.value)} onKeyDown={e => e.key === 'Enter' && addVideoType()} className="border border-gray-200 rounded-full px-3 py-1 text-xs w-24 focus:outline-none focus:border-gray-400" />
+                    {newTypeName && <button onClick={addVideoType} className="text-xs text-blue-600 hover:text-blue-800">Ajouter</button>}
+                  </div>
                 </div>
               )}
               
