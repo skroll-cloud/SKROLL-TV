@@ -1015,6 +1015,15 @@ export default function Home() {
             const unresolvedComments = allComments.filter(c => !c.resolved)
             const resolvedComments = allComments.filter(c => c.resolved)
             const displayComments = showResolved ? allComments : unresolvedComments
+
+            // Grouper par vidéo
+            const videoIds = [...new Set(displayComments.map(c => c.video_id))]
+            const groups = videoIds.map(videoId => {
+              const groupComments = displayComments.filter(c => c.video_id === videoId)
+              const latest = groupComments.slice().sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0]
+              return { videoId, videoTitle: latest?.videos?.title, comments: groupComments, latestDate: latest?.created_at }
+            }).sort((a, b) => new Date(b.latestDate) - new Date(a.latestDate))
+
             return (
               <div>
                 <div className="flex items-center justify-between mb-5">
@@ -1024,82 +1033,123 @@ export default function Home() {
                   {resolvedComments.length > 0 && (
                     <button onClick={() => setShowResolved(v => !v)}
                       className={`text-xs px-3 py-1.5 rounded-xl transition-colors ${showResolved ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>
-                      {showResolved ? `Masquer résolus (${resolvedComments.length})` : `Afficher résolus (${resolvedComments.length})`}
+                      {showResolved ? `Masquer résolus (${resolvedComments.length})` : `Voir résolus (${resolvedComments.length})`}
                     </button>
                   )}
                 </div>
 
-                {displayComments.length === 0 ? (
+                {groups.length === 0 ? (
                   <div className="text-center py-16 text-gray-400 text-sm">
                     {showResolved ? 'Aucun commentaire' : 'Tous les commentaires sont résolus'}
                   </div>
                 ) : (
-                  <div className="space-y-2">
-                    {displayComments.map(comment => {
-                      const isAssignedToMe = comment.assignee === currentUser
-                      const isResolved = !!comment.resolved
-                      return (
-                        <div key={comment.id}
-                          className={`flex items-start gap-3 p-3.5 rounded-xl border transition-all ${
-                            isResolved ? 'bg-gray-50 border-gray-100 opacity-60' :
-                            isAssignedToMe ? 'bg-blue-50 border-blue-100' :
-                            'bg-white border-gray-100'
-                          }`}>
-
-                          {/* Resolve checkbox */}
-                          <button onClick={() => resolveComment(comment.id, !isResolved)}
-                            className={`mt-0.5 w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${
-                              isResolved ? 'border-green-400 bg-green-400 text-white' : 'border-gray-300 hover:border-green-400'
-                            }`}>
-                            {isResolved && <span className="text-xs leading-none">✓</span>}
+                  <div className="space-y-4">
+                    {groups.map(group => (
+                      <div key={group.videoId} className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+                        {/* En-tête vidéo */}
+                        <div className="flex items-center justify-between px-4 py-3 bg-gray-50 border-b border-gray-100">
+                          <button onClick={() => router.push(`/video/${group.videoId}`)}
+                            className="font-medium text-sm text-gray-800 hover:text-blue-600 transition-colors text-left">
+                            {group.videoTitle || 'Vidéo sans titre'}
                           </button>
+                          <span className="text-xs text-gray-400 shrink-0 ml-2">
+                            {group.comments.filter(c => !c.resolved).length > 0
+                              ? `${group.comments.filter(c => !c.resolved).length} en attente`
+                              : 'tout résolu'}
+                          </span>
+                        </div>
 
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-start justify-between gap-2">
-                              <div className="flex-1 min-w-0">
-                                <p className={`text-sm ${isResolved ? 'line-through text-gray-400' : 'text-gray-800'}`}>{comment.text}</p>
-                                <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                                  <button onClick={() => router.push(`/video/${comment.video_id}`)}
-                                    className="text-xs text-blue-500 hover:underline truncate max-w-[200px]">
-                                    {comment.videos?.title || 'Vidéo'}
-                                  </button>
-                                  <span className="text-xs text-gray-400">· {comment.user_id?.split(' ')[0]} · {formatDate(comment.created_at)}</span>
-                                  {comment.assignee && (
-                                    <span className={`text-xs px-1.5 py-0.5 rounded-full ${isAssignedToMe ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-500'}`}>
-                                      → {comment.assignee.split(' ')[0]}
-                                    </span>
-                                  )}
+                        {/* Liste des commentaires */}
+                        <div className="divide-y divide-gray-50">
+                          {group.comments.slice().sort((a, b) => new Date(a.created_at) - new Date(b.created_at)).map(comment => {
+                            const isResolved = !!comment.resolved
+                            const isAssignedToMe = comment.assignee === currentUser
+                            return (
+                              <div key={comment.id}
+                                className={`flex items-start gap-3 px-4 py-3 transition-all ${
+                                  isResolved ? 'opacity-50' : isAssignedToMe ? 'bg-blue-50' : ''
+                                }`}>
+
+                                {/* Resolve checkbox */}
+                                <button onClick={() => resolveComment(comment.id, !isResolved)}
+                                  className={`mt-0.5 w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${
+                                    isResolved ? 'border-green-400 bg-green-400 text-white' : 'border-gray-300 hover:border-green-400'
+                                  }`}>
+                                  {isResolved && <span style={{fontSize:'8px'}} className="leading-none text-white">✓</span>}
+                                </button>
+
+                                {/* Avatar */}
+                                <div className={`w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0 ${
+                                  comment.user_id === 'Bertrand' ? 'bg-blue-500' :
+                                  comment.user_id === 'Sébastien' ? 'bg-emerald-500' : 'bg-violet-500'
+                                }`}>
+                                  {comment.user_id?.charAt(0)}
+                                </div>
+
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-start justify-between gap-2">
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex items-baseline gap-1.5 mb-0.5 flex-wrap">
+                                        <span className="font-medium text-xs text-gray-700">{comment.user_id?.split(' ')[0]}</span>
+                                        <span className="text-gray-400 text-xs">{formatDate(comment.created_at)}</span>
+                                        {comment.assignee && (
+                                          <span className={`text-xs px-1.5 py-0.5 rounded-full ${isAssignedToMe ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-500'}`}>
+                                            → {comment.assignee.split(' ')[0]}
+                                          </span>
+                                        )}
+                                      </div>
+                                      <p className={`text-sm ${isResolved ? 'line-through text-gray-400' : 'text-gray-800'}`}>{comment.text}</p>
+                                    </div>
+
+                                    {/* Assign */}
+                                    <div className="shrink-0">
+                                      {assigningCommentId === comment.id ? (
+                                        <div className="flex items-center gap-1">
+                                          {['', 'Bertrand', 'Sébastien', 'Pierre Emmanuel'].map(name => (
+                                            <button key={name || 'none'} onClick={() => assignComment(comment.id, name)}
+                                              className={`text-xs px-1.5 py-0.5 rounded ${
+                                                !name ? 'bg-gray-100 text-gray-500' :
+                                                comment.assignee === name ? 'bg-blue-600 text-white' :
+                                                'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                                              }`}>
+                                              {name ? name.split(' ')[0] : '—'}
+                                            </button>
+                                          ))}
+                                          <button onClick={() => setAssigningCommentId(null)} className="text-gray-300 text-xs ml-1">✕</button>
+                                        </div>
+                                      ) : (
+                                        <button onClick={() => setAssigningCommentId(comment.id)}
+                                          className="text-xs text-gray-300 hover:text-gray-600 px-1.5 py-0.5 rounded hover:bg-gray-100 transition-colors whitespace-nowrap">
+                                          {comment.assignee ? 'Réassigner' : 'Assigner'}
+                                        </button>
+                                      )}
+                                    </div>
+                                  </div>
                                 </div>
                               </div>
-
-                              {/* Assign controls */}
-                              <div className="shrink-0">
-                                {assigningCommentId === comment.id ? (
-                                  <div className="flex items-center gap-1">
-                                    {['', 'Bertrand', 'Sébastien', 'Pierre Emmanuel'].map(name => (
-                                      <button key={name || 'none'} onClick={() => assignComment(comment.id, name)}
-                                        className={`text-xs px-1.5 py-0.5 rounded transition-colors ${
-                                          !name ? 'bg-gray-100 text-gray-500 hover:bg-gray-200' :
-                                          comment.assignee === name ? 'bg-blue-600 text-white' :
-                                          'bg-gray-100 text-gray-500 hover:bg-gray-200'
-                                        }`}>
-                                        {name ? name.split(' ')[0] : '—'}
-                                      </button>
-                                    ))}
-                                    <button onClick={() => setAssigningCommentId(null)} className="text-xs text-gray-300 hover:text-gray-500 ml-1">✕</button>
-                                  </div>
-                                ) : (
-                                  <button onClick={() => setAssigningCommentId(comment.id)}
-                                    className="text-xs text-gray-400 hover:text-gray-700 px-2 py-0.5 rounded-lg hover:bg-gray-100 transition-colors whitespace-nowrap">
-                                    {comment.assignee ? 'Réassigner' : 'Assigner'}
-                                  </button>
-                                )}
-                              </div>
-                            </div>
-                          </div>
+                            )
+                          })}
                         </div>
-                      )
-                    })}
+
+                        {/* Répondre */}
+                        <div className="px-4 pb-3 pt-2 border-t border-gray-50">
+                          {replyTo === group.videoId ? (
+                            <div className="flex gap-2">
+                              <input type="text" value={replyText} onChange={e => setReplyText(e.target.value)}
+                                placeholder="Ajouter un commentaire..." className="flex-1 border border-gray-200 rounded-xl px-3 py-1.5 text-sm focus:outline-none focus:border-gray-400"
+                                autoFocus onKeyDown={e => e.key === 'Enter' && addReply(group.videoId)} />
+                              <button onClick={() => addReply(group.videoId)} className="bg-gray-900 text-white px-3 py-1.5 rounded-xl text-sm">Envoyer</button>
+                              <button onClick={() => setReplyTo(null)} className="text-gray-400 px-1">✕</button>
+                            </div>
+                          ) : (
+                            <button onClick={() => setReplyTo(group.videoId)}
+                              className="text-xs text-gray-400 hover:text-gray-600 transition-colors">
+                              + Répondre
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
