@@ -1102,24 +1102,25 @@ export default function Home() {
                                     </div>
 
                                     {/* Assign */}
-                                    <div className="shrink-0">
+                                    <div className="shrink-0" onClick={e => e.stopPropagation()}>
                                       {assigningCommentId === comment.id ? (
                                         <div className="flex items-center gap-1">
                                           {['', 'Bertrand', 'Sébastien', 'Pierre Emmanuel'].map(name => (
-                                            <button key={name || 'none'} onClick={() => assignComment(comment.id, name)}
-                                              className={`text-xs px-1.5 py-0.5 rounded ${
-                                                !name ? 'bg-gray-100 text-gray-500' :
+                                            <button type="button" key={name || 'none'}
+                                              onClick={e => { e.stopPropagation(); assignComment(comment.id, name) }}
+                                              className={`cursor-pointer text-xs px-2 py-1 rounded font-medium ${
+                                                !name ? 'bg-gray-100 text-gray-500 hover:bg-gray-200' :
                                                 comment.assignee === name ? 'bg-blue-600 text-white' :
-                                                'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                                                'bg-gray-100 text-gray-600 hover:bg-blue-100 hover:text-blue-700'
                                               }`}>
                                               {name ? name.split(' ')[0] : '—'}
                                             </button>
                                           ))}
-                                          <button onClick={() => setAssigningCommentId(null)} className="text-gray-300 text-xs ml-1">✕</button>
+                                          <button type="button" onClick={e => { e.stopPropagation(); setAssigningCommentId(null) }} className="cursor-pointer text-gray-400 hover:text-gray-700 text-sm ml-1 px-1">✕</button>
                                         </div>
                                       ) : (
-                                        <button onClick={() => setAssigningCommentId(comment.id)}
-                                          className="text-xs text-gray-300 hover:text-gray-600 px-1.5 py-0.5 rounded hover:bg-gray-100 transition-colors whitespace-nowrap">
+                                        <button type="button" onClick={e => { e.stopPropagation(); setAssigningCommentId(comment.id) }}
+                                          className="cursor-pointer text-xs text-gray-400 hover:text-gray-700 px-2 py-1 rounded hover:bg-gray-100 transition-colors whitespace-nowrap">
                                           {comment.assignee ? 'Réassigner' : 'Assigner'}
                                         </button>
                                       )}
