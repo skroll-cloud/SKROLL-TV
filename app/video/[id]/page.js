@@ -67,6 +67,7 @@ export default function VideoPage({ params }) {
   const [assigningCommentId, setAssigningCommentId] = useState(null)
   const [audioTracks, setAudioTracks] = useState([])
   const [uploadingAudio, setUploadingAudio] = useState(false)
+  const [replacingVideo, setReplacingVideo] = useState(false)
   const [videoTypes, setVideoTypes] = useState([])
   
   // Swipe state
@@ -229,6 +230,21 @@ export default function VideoPage({ params }) {
     loadAllVideos()
   }
 
+  async function handleReplaceVideo(event) {
+    const file = event.target.files?.[0]
+    if (!file || !video) return
+    if (!confirm(`Remplacer la vidéo par "${file.name}" ? Les commentaires et votes seront conservés.`)) { event.target.value = ''; return }
+    setReplacingVideo(true)
+    const filePath = `${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`
+    const { error } = await supabase.storage.from('Videos').upload(filePath, file, { cacheControl: '3600', upsert: false })
+    if (error) { alert(`Erreur upload : ${error.message}`); setReplacingVideo(false); return }
+    const { data: urlData } = supabase.storage.from('Videos').getPublicUrl(filePath)
+    await supabase.from('videos').update({ file_url: urlData.publicUrl }).eq('id', video.id)
+    setReplacingVideo(false)
+    loadAllVideos()
+    event.target.value = ''
+  }
+
   async function handleAudioUpload(event) {
     const file = event.target.files?.[0]
     if (!file || !video) return
@@ -383,6 +399,12 @@ export default function VideoPage({ params }) {
                   {videoTypes.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                 </select>
                 <span className="text-sm text-gray-400">par {video.uploaded_by} · {formatDate(video.uploaded_at)}</span>
+                <label className="cursor-pointer">
+                  <input type="file" accept="video/*" onChange={handleReplaceVideo} disabled={replacingVideo} className="hidden" />
+                  <span className={`text-xs px-2.5 py-1 rounded-lg border transition-colors ${replacingVideo ? 'text-gray-400 border-gray-200' : 'text-gray-500 border-gray-200 hover:border-gray-400 hover:text-gray-800'}`}>
+                    {replacingVideo ? 'Remplacement...' : '↑ Remplacer la vidéo'}
+                  </span>
+                </label>
               </div>
             </div>
 
