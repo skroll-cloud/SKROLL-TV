@@ -709,12 +709,13 @@ export default function Home() {
                 {id:'videos', label:'Vidéos'},
                 {id:'comments', label:`Commentaires (${allComments.length})`},
                 {id:'tasks', label:'Tâches'},
+                {id:'retroplanning', label:'Rétroplanning'},
                 {id:'ideas', label:'Idées'},
                 {id:'contacts', label:'Contacts'},
                 {id:'files', label:'Fichiers'},
               ].map((item) => (
                 <li key={item.id}>
-                  <button onClick={() => { setCurrentSection(item.id); setMobileMenuOpen(false) }} className={`w-full text-left px-3 py-2 rounded-lg text-sm ${currentSection === item.id ? 'bg-blue-50 text-blue-600 font-medium' : 'text-gray-600'}`}>
+                  <button onClick={() => { if (item.id === 'retroplanning') return router.push('/retroplanning'); setCurrentSection(item.id); setMobileMenuOpen(false) }} className={`w-full text-left px-3 py-2 rounded-lg text-sm ${currentSection === item.id ? 'bg-blue-50 text-blue-600 font-medium' : 'text-gray-600'}`}>
                     {item.label}
                   </button>
                 </li>
@@ -751,12 +752,13 @@ export default function Home() {
               {id:'videos', label:'Vidéos'},
               {id:'comments', label:`Commentaires (${allComments.length})`},
               {id:'tasks', label:'Tâches'},
+              {id:'retroplanning', label:'Rétroplanning'},
               {id:'ideas', label:'Idées'},
               {id:'contacts', label:'Contacts'},
               {id:'files', label:'Fichiers'},
             ].map((item) => (
               <li key={item.id}>
-                <button onClick={() => setCurrentSection(item.id)} className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${currentSection === item.id ? 'bg-blue-50 text-blue-600 font-medium' : 'text-gray-500 hover:text-gray-800'}`}>
+                <button onClick={() => item.id === 'retroplanning' ? router.push('/retroplanning') : setCurrentSection(item.id)} className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${currentSection === item.id ? 'bg-blue-50 text-blue-600 font-medium' : 'text-gray-500 hover:text-gray-800'}`}>
                   {item.label}
                 </button>
               </li>
