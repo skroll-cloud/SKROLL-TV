@@ -16,11 +16,13 @@ const NETWORKS = [
   { id: 'youtube', label: 'YouTube', short: 'YT' },
 ]
 const ALL_NETWORKS = NETWORKS.map(n => n.id)
-// Diffusion strategy: daily short at 19:00, compils (2 or 3 already-aired shorts, 61–90 s) Tue & Fri 12:30, "Le 2 minutes" 16:9 Sunday 10:00.
+// Diffusion strategy, one slot a day alternating: short Mon/Wed/Thu/Sat, compil Tue/Fri, episode on Sunday
+// (the full 2 minutes on YouTube + Facebook, an extract as a Reel on Instagram + TikTok pointing to it).
 const FORMATS = {
-  short: { label: 'Short quotidien', chip: 'bg-blue-50 border-blue-500 text-blue-950', dot: 'bg-blue-500', slots: 1, time: '19:00', networks: ALL_NETWORKS, hint: '9:16, 15–45 s.' },
-  compil: { label: 'Compil 61–90 s', chip: 'bg-orange-50 border-orange-500 text-orange-950', dot: 'bg-orange-500', slots: 3, time: '12:30', networks: ALL_NETWORKS, hint: '9:16, 2 ou 3 shorts diffusés depuis au moins une semaine.' },
-  '2min': { label: 'Le 2 minutes 16:9', chip: 'bg-purple-50 border-purple-500 text-purple-950', dot: 'bg-purple-500', slots: null, time: '10:00', networks: ['youtube', 'facebook'], hint: '16:9, thématique, pour YouTube et Facebook.' },
+  short: { label: 'Short', chip: 'bg-blue-50 border-blue-500 text-blue-950', dot: 'bg-blue-500', slots: 1, time: '19:00', networks: ALL_NETWORKS, hint: '9:16, 15–45 s, sur les quatre réseaux.' },
+  compil: { label: 'Compil (série de 3)', chip: 'bg-orange-50 border-orange-500 text-orange-950', dot: 'bg-orange-500', slots: 3, time: '19:00', networks: ALL_NETWORKS, hint: '9:16, plus de 61 s : trois shorts déjà diffusés, montés ensemble.' },
+  '2min': { label: 'Épisode 2 min', chip: 'bg-purple-50 border-purple-500 text-purple-950', dot: 'bg-purple-500', slots: null, time: '10:00', networks: ['youtube', 'facebook'], hint: '16:9, environ 2 minutes, sur YouTube et Facebook.' },
+  extrait: { label: "Extrait d'épisode", chip: 'bg-fuchsia-50 border-fuchsia-400 text-fuchsia-950', dot: 'bg-fuchsia-400', slots: 0, time: '10:00', networks: ['instagram', 'tiktok'], hint: "Reel 9:16 tiré de l'épisode, avec renvoi vers YouTube (lien en bio)." },
 }
 const WEEKDAYS = ['lun.', 'mar.', 'mer.', 'jeu.', 'ven.', 'sam.', 'dim.']
 const WEEKDAYS_LONG = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi']
@@ -104,7 +106,7 @@ export default function DiffusionPage() {
     if (!saved) { router.push('/'); return }
     setCurrentUser(saved)
     setShownNetworks(readList('skroll_diff_networks2', ALL_NETWORKS))
-    setShownFormats(readList('skroll_diff_formats2', Object.keys(FORMATS)))
+    setShownFormats(readList('skroll_diff_formats3', Object.keys(FORMATS)))
     const now = new Date()
     if (now.getFullYear() * 12 + now.getMonth() > FIRST_MONTH.y * 12 + FIRST_MONTH.m) setMonth({ y: now.getFullYear(), m: now.getMonth() })
     load()
@@ -224,7 +226,6 @@ export default function DiffusionPage() {
       title={`${e.post_time} · ${entryName(e)} · ${FORMATS[e.format].label}${e.final_url ? '' : ' · reste à faire'}`}
       className={`w-full text-left text-xs rounded-md border-l-4 px-1.5 py-1 flex items-center gap-1 ${FORMATS[e.format].chip} ${e.final_url ? '' : 'border-dashed opacity-80'} ${locked(e) ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing'}`}>
       <span className="line-clamp-2 break-words flex-1 leading-tight"><span className="opacity-60 tabular-nums mr-1">{e.post_time}</span><span className={`font-medium ${e.final_url ? '' : 'italic'}`}>{entryName(e)}</span></span>
-      {e.networks.length < NETWORKS.length && <span className="text-[10px] opacity-60 shrink-0">{NETWORKS.filter(n => e.networks.includes(n.id)).map(n => n.short).join(' ')}</span>}
       {locked(e) ? <span className="shrink-0 text-green-700" aria-label="Envoyé à Metricool">✓</span>
         : e.final_url ? <span className="shrink-0 w-1.5 h-1.5 rounded-full bg-green-500" aria-label="Fichier final prêt" /> : null}
     </button>
@@ -259,7 +260,7 @@ export default function DiffusionPage() {
               <div className="flex flex-wrap gap-3 lg:block lg:space-y-1.5">
                 {Object.entries(FORMATS).map(([id, f]) => (
                   <label key={id} className="flex items-center gap-2 text-sm text-gray-800">
-                    <input type="checkbox" checked={shownFormats.includes(id)} onChange={() => toggle(shownFormats, setShownFormats, 'skroll_diff_formats2', id)} className="w-4 h-4" />
+                    <input type="checkbox" checked={shownFormats.includes(id)} onChange={() => toggle(shownFormats, setShownFormats, 'skroll_diff_formats3', id)} className="w-4 h-4" />
                     <span className={`w-2.5 h-2.5 rounded-sm ${f.dot}`} />{f.label}
                   </label>
                 ))}
@@ -314,7 +315,7 @@ export default function DiffusionPage() {
           {error && <p className="mb-4 text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
           {loading && <p className="text-gray-500">Chargement…</p>}
 
-          <p className="hidden md:block text-xs text-gray-500 mb-2">Glissez une publication sur un autre jour pour la déplacer ; si ce jour a déjà le même format, les deux s'échangent. Cliquez pour modifier ou déposer le fichier final.</p>
+          <p className="hidden md:block text-xs text-gray-500 mb-2">Une publication par jour, en alternance : short lundi, mercredi, jeudi et samedi ; compil mardi et vendredi ; épisode le dimanche. Glissez une publication sur un autre jour pour la déplacer ; si ce jour a déjà le même format, les deux s'échangent. Cliquez pour modifier ou déposer le fichier final.</p>
 
           {/* Month grid (tablet and up) */}
           <div className="hidden md:block bg-white rounded-xl shadow-sm overflow-hidden">
@@ -466,7 +467,7 @@ function Editor({ entry, locked, pickable, byId, uploading, name, onClose, onCha
             </div>
           </section>
 
-          <section>
+          {slotCount > 0 && <section>
             <p className="text-sm font-semibold text-gray-900 mb-2">{entry.format === 'short' ? 'Vidéo' : 'Vidéos sources'}</p>
             <div className="space-y-2">
               {Array.from({ length: slotCount }, (_, i) => (
@@ -476,7 +477,7 @@ function Editor({ entry, locked, pickable, byId, uploading, name, onClose, onCha
                 </select>
               ))}
             </div>
-          </section>
+          </section>}
 
           <section>
             <label className="text-sm font-semibold text-gray-900">Titre {entry.format === 'short' && <span className="font-normal text-gray-500">(facultatif)</span>}
