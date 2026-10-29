@@ -26,6 +26,7 @@ const FORMATS = {
 }
 const WEEKDAYS = ['lun.', 'mar.', 'mer.', 'jeu.', 'ven.', 'sam.', 'dim.']
 const WEEKDAYS_LONG = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi']
+const MONTHS_SHORT = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.']
 const MONTHS = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre']
 const FIRST_MONTH = { y: 2026, m: 10 }
 
@@ -57,6 +58,12 @@ function monthWeeks(y, m) {
 
 function isPad(v) {
   return v.bertrand_vote === 'pad' && v.sebastien_vote === 'pad' && v.pierreemmanuel_vote === 'pad'
+}
+
+function workStatus(v) {
+  if (isRejected(v)) return 'à supprimer'
+  if (isPad(v)) return null
+  return [v.bertrand_vote, v.sebastien_vote, v.pierreemmanuel_vote].some(Boolean) ? 'en cours' : 'en attente'
 }
 
 function isRejected(v) {
@@ -127,7 +134,7 @@ export default function DiffusionPage() {
 
   const byId = Object.fromEntries(videos.map(v => [v.id, v]))
   const usedIds = new Set(entries.filter(e => e.format === 'short').flatMap(e => e.video_ids))
-  const unscheduled = videos.filter(v => isPad(v) && !usedIds.has(v.id)).sort((a, b) => a.pad_number - b.pad_number)
+  const unscheduled = videos.filter(v => !isRejected(v) && !usedIds.has(v.id)).sort((a, b) => (a.pad_number || 999) - (b.pad_number || 999) || a.title.localeCompare(b.title))
   const pickable = videos.filter(v => !isRejected(v)).sort((a, b) => (a.pad_number || 999) - (b.pad_number || 999) || a.title.localeCompare(b.title))
   const locked = e => !!e.metricool_status
   const todo = e => !e.final_url
@@ -209,6 +216,7 @@ export default function DiffusionPage() {
   const monthEntries = entries.filter(e => e.day.startsWith(monthPrefix) && visible(e))
   const readyCount = entries.filter(e => e.final_url).length
   const emptyShorts = entries.filter(e => e.format === 'short' && !e.video_ids.length).length
+  const unfinishedShorts = entries.filter(e => e.format === 'short' && byId[e.video_ids[0]] && !isPad(byId[e.video_ids[0]])).length
   const dayEntries = day => entries.filter(e => e.day === day && visible(e)).sort((a, b) => (a.post_time || '').localeCompare(b.post_time || ''))
 
   const dragProps = payload => ({
@@ -225,7 +233,7 @@ export default function DiffusionPage() {
     <button {...(locked(e) ? {} : dragProps({ entryId: e.id }))} onClick={() => setEditingId(e.id)}
       title={`${e.post_time} · ${entryName(e)} · ${FORMATS[e.format].label}${e.final_url ? '' : ' · reste à faire'}`}
       className={`w-full text-left text-xs rounded-md border-l-4 px-1.5 py-1 flex items-center gap-1 ${FORMATS[e.format].chip} ${e.final_url ? '' : 'border-dashed opacity-80'} ${locked(e) ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing'}`}>
-      <span className="line-clamp-2 break-words flex-1 leading-tight"><span className="opacity-60 tabular-nums mr-1">{e.post_time}</span><span className={`font-medium ${e.final_url ? '' : 'italic'}`}>{entryName(e)}</span></span>
+      <span className="line-clamp-2 break-words flex-1 leading-tight"><span className="opacity-60 tabular-nums mr-1">{e.post_time}</span><span className={`font-medium ${e.final_url ? '' : 'italic'}`}>{entryName(e)}</span>{e.format === 'short' && byId[e.video_ids[0]] && workStatus(byId[e.video_ids[0]]) && <span className="ml-1 text-[10px] uppercase tracking-wide text-gray-500">{workStatus(byId[e.video_ids[0]])}</span>}</span>
       {locked(e) ? <span className="shrink-0 text-green-700" aria-label="Envoyé à Metricool">✓</span>
         : e.final_url ? <span className="shrink-0 w-1.5 h-1.5 rounded-full bg-green-500" aria-label="Fichier final prêt" /> : null}
     </button>
@@ -274,6 +282,7 @@ export default function DiffusionPage() {
                 const all = entries.filter(e => e.format === id)
                 return <p key={id} className="flex items-center gap-2"><span className={`w-2.5 h-2.5 rounded-sm ${f.dot}`} /><span className="flex-1">{f.label}</span><span className="tabular-nums text-gray-500">{all.filter(todo).length}/{all.length}</span></p>
               })}
+              {unfinishedShorts > 0 && <p className="text-xs text-gray-500">dont {unfinishedShorts} shorts pas encore en PAD</p>}
               {emptyShorts > 0 && <p className="text-xs text-orange-700">dont {emptyShorts} shorts sans vidéo choisie</p>}
             </div>
             <label className="flex items-center gap-2 text-sm text-gray-800 mt-2">
@@ -288,7 +297,7 @@ export default function DiffusionPage() {
           </div>
           {unscheduled.length > 0 && (
             <div className="hidden lg:block">
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">PAD à programmer ({unscheduled.length})</p>
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Vidéos à programmer ({unscheduled.length})</p>
               <p className="text-xs text-gray-500 mb-2">Glissez une vidéo sur un jour.</p>
               <div className="space-y-1 max-h-[40vh] overflow-y-auto">
                 {unscheduled.map(v => (
@@ -333,7 +342,7 @@ export default function DiffusionPage() {
                       <div className="flex items-center justify-between">
                         <button onClick={() => addEntry(day)} aria-label={`Ajouter une publication le ${longDay(day)}`} className="text-gray-300 hover:text-blue-600 text-sm leading-none opacity-0 group-hover:opacity-100 px-1">+</button>
                         <span className={`text-sm tabular-nums ${day === today ? 'bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center font-semibold' : inMonth ? 'text-gray-800' : 'text-gray-300'}`}>
-                          {Number(day.slice(8))}{day.endsWith('-01') ? ` ${MONTHS[Number(day.slice(5, 7)) - 1].slice(0, 4).toLowerCase()}.` : ''}
+                          {Number(day.slice(8))}{day.endsWith('-01') ? ` ${MONTHS_SHORT[Number(day.slice(5, 7)) - 1]}` : ''}
                         </span>
                       </div>
                       {list.map(e => <Chip key={e.id} e={e} />)}
