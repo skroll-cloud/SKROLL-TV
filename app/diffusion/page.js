@@ -9,17 +9,19 @@ const supabase = createClient(
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJpb3RkbGJkeXd4dW91dmRncXB0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzAxNTIxOTAsImV4cCI6MjA4NTcyODE5MH0.DymkDS6E-ouapVQerRjZSHDEeUbV81GY-5i7d5kOQ1w'
 )
 
-const FORMATS = {
-  unique: { label: 'Vidéo unique', chip: 'bg-blue-50 border-blue-500 text-blue-950', dot: 'bg-blue-500', slots: 1 },
-  montage3: { label: 'Montage de 3', chip: 'bg-orange-50 border-orange-500 text-orange-950', dot: 'bg-orange-500', slots: 3 },
-  episode: { label: 'Épisode ~2 min', chip: 'bg-purple-50 border-purple-500 text-purple-950', dot: 'bg-purple-500', slots: null },
-}
 const NETWORKS = [
   { id: 'instagram', label: 'Instagram', short: 'IG' },
+  { id: 'facebook', label: 'Facebook', short: 'FB' },
   { id: 'tiktok', label: 'TikTok', short: 'TT' },
   { id: 'youtube', label: 'YouTube', short: 'YT' },
 ]
 const ALL_NETWORKS = NETWORKS.map(n => n.id)
+// Diffusion strategy: daily short at 19:00, compils (2 or 3 already-aired shorts, 61–90 s) Tue & Fri 12:30, "Le 2 minutes" 16:9 Sunday 10:00.
+const FORMATS = {
+  short: { label: 'Short quotidien', chip: 'bg-blue-50 border-blue-500 text-blue-950', dot: 'bg-blue-500', slots: 1, time: '19:00', networks: ALL_NETWORKS, hint: '9:16, 15–45 s.' },
+  compil: { label: 'Compil 61–90 s', chip: 'bg-orange-50 border-orange-500 text-orange-950', dot: 'bg-orange-500', slots: 3, time: '12:30', networks: ALL_NETWORKS, hint: '9:16, 2 ou 3 shorts diffusés depuis au moins une semaine.' },
+  '2min': { label: 'Le 2 minutes 16:9', chip: 'bg-purple-50 border-purple-500 text-purple-950', dot: 'bg-purple-500', slots: null, time: '10:00', networks: ['youtube', 'facebook'], hint: '16:9, thématique, pour YouTube et Facebook.' },
+}
 const WEEKDAYS = ['lun.', 'mar.', 'mer.', 'jeu.', 'ven.', 'sam.', 'dim.']
 const WEEKDAYS_LONG = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi']
 const MONTHS = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre']
@@ -95,13 +97,14 @@ export default function DiffusionPage() {
   const [editingId, setEditingId] = useState(null)
   const [dropDay, setDropDay] = useState(null)
   const [uploading, setUploading] = useState(null)
+  const [onlyTodo, setOnlyTodo] = useState(false)
 
   useEffect(() => {
     const saved = localStorage.getItem('skroll_user')
     if (!saved) { router.push('/'); return }
     setCurrentUser(saved)
-    setShownNetworks(readList('skroll_diff_networks', ALL_NETWORKS))
-    setShownFormats(readList('skroll_diff_formats', Object.keys(FORMATS)))
+    setShownNetworks(readList('skroll_diff_networks2', ALL_NETWORKS))
+    setShownFormats(readList('skroll_diff_formats2', Object.keys(FORMATS)))
     const now = new Date()
     if (now.getFullYear() * 12 + now.getMonth() > FIRST_MONTH.y * 12 + FIRST_MONTH.m) setMonth({ y: now.getFullYear(), m: now.getMonth() })
     load()
@@ -121,19 +124,22 @@ export default function DiffusionPage() {
   }
 
   const byId = Object.fromEntries(videos.map(v => [v.id, v]))
-  const usedIds = new Set(entries.flatMap(e => e.video_ids))
+  const usedIds = new Set(entries.filter(e => e.format === 'short').flatMap(e => e.video_ids))
   const unscheduled = videos.filter(v => isPad(v) && !usedIds.has(v.id)).sort((a, b) => a.pad_number - b.pad_number)
   const pickable = videos.filter(v => !isRejected(v)).sort((a, b) => (a.pad_number || 999) - (b.pad_number || 999) || a.title.localeCompare(b.title))
   const locked = e => !!e.metricool_status
-  const visible = e => shownFormats.includes(e.format) && e.networks.some(n => shownNetworks.includes(n))
+  const todo = e => !e.final_url
+  const visible = e => shownFormats.includes(e.format) && e.networks.some(n => shownNetworks.includes(n)) && (!onlyTodo || todo(e))
   const editing = entries.find(e => e.id === editingId)
 
   function entryName(e) {
-    if (e.title) return e.title
     const names = e.video_ids.map(id => byId[id]).filter(Boolean)
-    if (!names.length) return 'Sans vidéo'
-    if (e.format === 'unique') return `${names[0].pad_number ? '#' + String(names[0].pad_number).padStart(2, '0') + ' ' : ''}${shortName(names[0])}`
-    return names.map(shortName).join(' + ')
+    if (e.format === 'short') {
+      const v = names[0] && `${names[0].pad_number ? '#' + String(names[0].pad_number).padStart(2, '0') + ' ' : ''}${shortName(names[0])}`
+      if (e.title && v) return `${e.title} · ${v}`
+      return e.title || v || 'Short à choisir'
+    }
+    return e.title || names.map(shortName).join(' + ') || FORMATS[e.format].label
   }
 
   async function updateEntry(id, patch) {
@@ -145,7 +151,7 @@ export default function DiffusionPage() {
   async function addEntry(day, videoId) {
     const v = byId[videoId]
     const { data, error } = await supabase.from('broadcast_schedule')
-      .insert([{ day, format: 'unique', video_ids: v ? [v.id] : [], caption: v ? defaultCaption(v) : '' }]).select().single()
+      .insert([{ day, format: 'short', networks: FORMATS.short.networks, post_time: FORMATS.short.time, video_ids: v ? [v.id] : [], caption: v ? defaultCaption(v) : '' }]).select().single()
     if (error) { setError('Publication non ajoutée. Réessayez.'); return }
     setEntries(es => [...es, data])
     if (!v) setEditingId(data.id)
@@ -159,13 +165,13 @@ export default function DiffusionPage() {
     if (error) { setError('Suppression impossible.'); load() }
   }
 
-  // Dropping on a day already used on the same network swaps the two, so the one-a-day rhythm stays intact.
+  // Dropping on a day that already has the same format swaps the two, so the rhythm (one short a day, etc.) stays intact.
   async function dropOn(day, payload) {
     setDropDay(null)
     if (payload.videoId) return addEntry(day, payload.videoId)
     const moving = entries.find(e => e.id === payload.entryId)
     if (!moving || moving.day === day || locked(moving)) return
-    const other = entries.find(e => e.day === day && e.id !== moving.id && visible(e) && e.networks.some(n => moving.networks.includes(n)))
+    const other = entries.find(e => e.day === day && e.id !== moving.id && e.format === moving.format)
     if (other && locked(other)) { setError('Ce jour contient une publication déjà envoyée à Metricool : échange impossible.'); return }
     await updateEntry(moving.id, { day })
     if (other) await updateEntry(other.id, { day: moving.day })
@@ -200,7 +206,8 @@ export default function DiffusionPage() {
   const monthPrefix = `${month.y}-${String(month.m + 1).padStart(2, '0')}`
   const monthEntries = entries.filter(e => e.day.startsWith(monthPrefix) && visible(e))
   const readyCount = entries.filter(e => e.final_url).length
-  const dayEntries = day => entries.filter(e => e.day === day && visible(e))
+  const emptyShorts = entries.filter(e => e.format === 'short' && !e.video_ids.length).length
+  const dayEntries = day => entries.filter(e => e.day === day && visible(e)).sort((a, b) => (a.post_time || '').localeCompare(b.post_time || ''))
 
   const dragProps = payload => ({
     draggable: true,
@@ -214,9 +221,9 @@ export default function DiffusionPage() {
 
   const Chip = ({ e }) => (
     <button {...(locked(e) ? {} : dragProps({ entryId: e.id }))} onClick={() => setEditingId(e.id)}
-      title={`${entryName(e)} · ${FORMATS[e.format].label}${e.final_url ? '' : ' · fichier final manquant'}`}
+      title={`${e.post_time} · ${entryName(e)} · ${FORMATS[e.format].label}${e.final_url ? '' : ' · reste à faire'}`}
       className={`w-full text-left text-xs rounded-md border-l-4 px-1.5 py-1 flex items-center gap-1 ${FORMATS[e.format].chip} ${e.final_url ? '' : 'border-dashed opacity-80'} ${locked(e) ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing'}`}>
-      <span className="line-clamp-2 break-words flex-1 font-medium leading-tight">{entryName(e)}</span>
+      <span className="line-clamp-2 break-words flex-1 leading-tight"><span className="opacity-60 tabular-nums mr-1">{e.post_time}</span><span className={`font-medium ${e.final_url ? '' : 'italic'}`}>{entryName(e)}</span></span>
       {e.networks.length < NETWORKS.length && <span className="text-[10px] opacity-60 shrink-0">{NETWORKS.filter(n => e.networks.includes(n.id)).map(n => n.short).join(' ')}</span>}
       {locked(e) ? <span className="shrink-0 text-green-700" aria-label="Envoyé à Metricool">✓</span>
         : e.final_url ? <span className="shrink-0 w-1.5 h-1.5 rounded-full bg-green-500" aria-label="Fichier final prêt" /> : null}
@@ -241,7 +248,7 @@ export default function DiffusionPage() {
               <div className="flex gap-3 lg:block lg:space-y-1.5">
                 {NETWORKS.map(n => (
                   <label key={n.id} className="flex items-center gap-2 text-sm text-gray-800">
-                    <input type="checkbox" checked={shownNetworks.includes(n.id)} onChange={() => toggle(shownNetworks, setShownNetworks, 'skroll_diff_networks', n.id)} className="w-4 h-4" />
+                    <input type="checkbox" checked={shownNetworks.includes(n.id)} onChange={() => toggle(shownNetworks, setShownNetworks, 'skroll_diff_networks2', n.id)} className="w-4 h-4" />
                     {n.label}
                   </label>
                 ))}
@@ -252,16 +259,30 @@ export default function DiffusionPage() {
               <div className="flex flex-wrap gap-3 lg:block lg:space-y-1.5">
                 {Object.entries(FORMATS).map(([id, f]) => (
                   <label key={id} className="flex items-center gap-2 text-sm text-gray-800">
-                    <input type="checkbox" checked={shownFormats.includes(id)} onChange={() => toggle(shownFormats, setShownFormats, 'skroll_diff_formats', id)} className="w-4 h-4" />
+                    <input type="checkbox" checked={shownFormats.includes(id)} onChange={() => toggle(shownFormats, setShownFormats, 'skroll_diff_formats2', id)} className="w-4 h-4" />
                     <span className={`w-2.5 h-2.5 rounded-sm ${f.dot}`} />{f.label}
                   </label>
                 ))}
               </div>
             </div>
           </div>
+          <div>
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Reste à faire</p>
+            <div className="text-sm text-gray-800 space-y-1">
+              {Object.entries(FORMATS).map(([id, f]) => {
+                const all = entries.filter(e => e.format === id)
+                return <p key={id} className="flex items-center gap-2"><span className={`w-2.5 h-2.5 rounded-sm ${f.dot}`} /><span className="flex-1">{f.label}</span><span className="tabular-nums text-gray-500">{all.filter(todo).length}/{all.length}</span></p>
+              })}
+              {emptyShorts > 0 && <p className="text-xs text-orange-700">dont {emptyShorts} shorts sans vidéo choisie</p>}
+            </div>
+            <label className="flex items-center gap-2 text-sm text-gray-800 mt-2">
+              <input type="checkbox" checked={onlyTodo} onChange={e => setOnlyTodo(e.target.checked)} className="w-4 h-4" />
+              Seulement ce qui reste à faire
+            </label>
+          </div>
           <div className="text-xs text-gray-500 space-y-1">
             <p><span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500 mr-1.5 align-middle" />fichier final déposé</p>
-            <p><span className="inline-block w-4 border-t-2 border-dashed border-gray-400 mr-1.5 align-middle" />pointillés : fichier final manquant</p>
+            <p><span className="inline-block w-4 border-t-2 border-dashed border-gray-400 mr-1.5 align-middle" />pointillés, italique : reste à faire (pas de fichier final)</p>
             <p><span className="text-green-700 mr-1.5">✓</span>envoyé à Metricool</p>
           </div>
           {unscheduled.length > 0 && (
@@ -293,7 +314,7 @@ export default function DiffusionPage() {
           {error && <p className="mb-4 text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
           {loading && <p className="text-gray-500">Chargement…</p>}
 
-          <p className="hidden md:block text-xs text-gray-500 mb-2">Glissez une publication sur un autre jour pour la déplacer ; si ce jour est déjà pris sur le même réseau, les deux s'échangent. Cliquez pour modifier ou remplacer le fichier.</p>
+          <p className="hidden md:block text-xs text-gray-500 mb-2">Glissez une publication sur un autre jour pour la déplacer ; si ce jour a déjà le même format, les deux s'échangent. Cliquez pour modifier ou déposer le fichier final.</p>
 
           {/* Month grid (tablet and up) */}
           <div className="hidden md:block bg-white rounded-xl shadow-sm overflow-hidden">
@@ -365,8 +386,8 @@ function Editor({ entry, locked, pickable, byId, uploading, name, onClose, onCha
   }, [onClose])
 
   function setFormat(f) {
-    const slots = FORMATS[f].slots
-    onChange({ format: f, video_ids: slots ? entry.video_ids.slice(0, slots) : entry.video_ids })
+    const { slots, time, networks } = FORMATS[f]
+    onChange({ format: f, post_time: time, networks, video_ids: slots ? entry.video_ids.slice(0, slots) : entry.video_ids })
   }
 
   function setVideo(i, id) {
@@ -374,7 +395,7 @@ function Editor({ entry, locked, pickable, byId, uploading, name, onClose, onCha
     ids[i] = id
     const clean = ids.filter(Boolean)
     const patch = { video_ids: clean }
-    if (entry.format === 'unique' && id && !entry.caption) patch.caption = defaultCaption(byId[id])
+    if (entry.format === 'short' && id && !entry.caption) patch.caption = defaultCaption(byId[id])
     onChange(patch)
   }
 
@@ -404,7 +425,7 @@ function Editor({ entry, locked, pickable, byId, uploading, name, onClose, onCha
             {preview && <video key={preview} src={preview} controls preload="metadata" playsInline className="w-full max-h-72 bg-black rounded-lg mb-2" />}
             {entry.final_url
               ? <p className="text-xs text-gray-600 break-all">Final : {entry.final_name}{entry.final_uploaded_by ? ` · déposé par ${entry.final_uploaded_by}` : ''}{entry.final_uploaded_at ? ` le ${new Date(entry.final_uploaded_at).toLocaleDateString('fr-FR')}` : ''}</p>
-              : <p className="text-xs text-orange-700">Pas encore de fichier final (mixé, habillé). {preview ? 'Aperçu : version de travail du site.' : ''}</p>}
+              : <p className="text-xs text-orange-700">Reste à faire : pas encore de fichier final (mixé, habillé). {preview ? 'Aperçu : version de travail du site.' : ''}</p>}
             <input ref={fileInput} type="file" accept="video/*" className="hidden" onChange={ev => { onUpload(ev.target.files[0]); ev.target.value = '' }} />
             <button onClick={() => fileInput.current.click()} disabled={locked || uploading}
               className="mt-2 bg-gray-900 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-40">
@@ -431,11 +452,12 @@ function Editor({ entry, locked, pickable, byId, uploading, name, onClose, onCha
                 </button>
               ))}
             </div>
+            <p className="text-xs text-gray-500 mt-1.5">{format.hint}</p>
           </section>
 
           <section>
             <p className="text-sm font-semibold text-gray-900 mb-2">Réseaux</p>
-            <div className="flex gap-4">
+            <div className="flex flex-wrap gap-x-4 gap-y-1">
               {NETWORKS.map(n => (
                 <label key={n.id} className="flex items-center gap-2 text-sm text-gray-800">
                   <input type="checkbox" checked={entry.networks.includes(n.id)} disabled={locked} onChange={() => toggleNetwork(n.id)} className="w-4 h-4" />{n.label}
@@ -445,11 +467,11 @@ function Editor({ entry, locked, pickable, byId, uploading, name, onClose, onCha
           </section>
 
           <section>
-            <p className="text-sm font-semibold text-gray-900 mb-2">{entry.format === 'unique' ? 'Vidéo source' : 'Vidéos sources'}</p>
+            <p className="text-sm font-semibold text-gray-900 mb-2">{entry.format === 'short' ? 'Vidéo' : 'Vidéos sources'}</p>
             <div className="space-y-2">
               {Array.from({ length: slotCount }, (_, i) => (
                 <select key={i} value={entry.video_ids[i] || ''} disabled={locked} onChange={ev => setVideo(i, ev.target.value)} className={field}>
-                  <option value="">{i < entry.video_ids.length ? 'Retirer' : entry.format === 'episode' ? '+ Ajouter une vidéo…' : 'Choisir une vidéo…'}</option>
+                  <option value="">{i < entry.video_ids.length ? 'Retirer' : entry.format === 'short' ? 'Choisir une vidéo…' : '+ Ajouter une vidéo…'}</option>
                   {pickable.map(v => <option key={v.id} value={v.id}>{videoLabel(v)}{isPad(v) ? '' : ' (pas PAD)'}</option>)}
                 </select>
               ))}
@@ -457,7 +479,7 @@ function Editor({ entry, locked, pickable, byId, uploading, name, onClose, onCha
           </section>
 
           <section>
-            <label className="text-sm font-semibold text-gray-900">Titre {entry.format === 'unique' && <span className="font-normal text-gray-500">(facultatif)</span>}
+            <label className="text-sm font-semibold text-gray-900">Titre {entry.format === 'short' && <span className="font-normal text-gray-500">(facultatif)</span>}
               <BlurInput value={entry.title || ''} disabled={locked} placeholder={name} onSave={title => onChange({ title })} className={`${field} mt-1 font-normal`} />
             </label>
             <p className="text-xs text-gray-500 mt-1">Sert de titre YouTube.</p>
