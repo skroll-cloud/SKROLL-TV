@@ -710,12 +710,13 @@ export default function Home() {
                 {id:'comments', label:`Commentaires (${allComments.length})`},
                 {id:'tasks', label:'Tâches'},
                 {id:'retroplanning', label:'Rétroplanning'},
+                {id:'diffusion', label:'Diffusion'},
                 {id:'ideas', label:'Idées'},
                 {id:'contacts', label:'Contacts'},
                 {id:'files', label:'Fichiers'},
               ].map((item) => (
                 <li key={item.id}>
-                  <button onClick={() => { if (item.id === 'retroplanning') return router.push('/retroplanning'); setCurrentSection(item.id); setMobileMenuOpen(false) }} className={`w-full text-left px-3 py-2 rounded-lg text-sm ${currentSection === item.id ? 'bg-blue-50 text-blue-600 font-medium' : 'text-gray-600'}`}>
+                  <button onClick={() => { if (item.id === 'retroplanning' || item.id === 'diffusion') return router.push('/' + item.id); setCurrentSection(item.id); setMobileMenuOpen(false) }} className={`w-full text-left px-3 py-2 rounded-lg text-sm ${currentSection === item.id ? 'bg-blue-50 text-blue-600 font-medium' : 'text-gray-600'}`}>
                     {item.label}
                   </button>
                 </li>
@@ -753,12 +754,13 @@ export default function Home() {
               {id:'comments', label:`Commentaires (${allComments.length})`},
               {id:'tasks', label:'Tâches'},
               {id:'retroplanning', label:'Rétroplanning'},
+              {id:'diffusion', label:'Diffusion'},
               {id:'ideas', label:'Idées'},
               {id:'contacts', label:'Contacts'},
               {id:'files', label:'Fichiers'},
             ].map((item) => (
               <li key={item.id}>
-                <button onClick={() => item.id === 'retroplanning' ? router.push('/retroplanning') : setCurrentSection(item.id)} className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${currentSection === item.id ? 'bg-blue-50 text-blue-600 font-medium' : 'text-gray-500 hover:text-gray-800'}`}>
+                <button onClick={() => item.id === 'retroplanning' || item.id === 'diffusion' ? router.push('/' + item.id) : setCurrentSection(item.id)} className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${currentSection === item.id ? 'bg-blue-50 text-blue-600 font-medium' : 'text-gray-500 hover:text-gray-800'}`}>
                   {item.label}
                 </button>
               </li>
