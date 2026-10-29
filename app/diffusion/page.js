@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@supabase/supabase-js'
 
@@ -9,27 +9,64 @@ const supabase = createClient(
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJpb3RkbGJkeXd4dW91dmRncXB0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzAxNTIxOTAsImV4cCI6MjA4NTcyODE5MH0.DymkDS6E-ouapVQerRjZSHDEeUbV81GY-5i7d5kOQ1w'
 )
 
-const WEEKDAYS = ['dim.', 'lun.', 'mar.', 'mer.', 'jeu.', 'ven.', 'sam.']
-const MONTHS = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.']
+const FORMATS = {
+  unique: { label: 'Vidéo unique', chip: 'bg-blue-50 border-blue-500 text-blue-950', dot: 'bg-blue-500', slots: 1 },
+  montage3: { label: 'Montage de 3', chip: 'bg-orange-50 border-orange-500 text-orange-950', dot: 'bg-orange-500', slots: 3 },
+  episode: { label: 'Épisode ~2 min', chip: 'bg-purple-50 border-purple-500 text-purple-950', dot: 'bg-purple-500', slots: null },
+}
+const NETWORKS = [
+  { id: 'instagram', label: 'Instagram', short: 'IG' },
+  { id: 'tiktok', label: 'TikTok', short: 'TT' },
+  { id: 'youtube', label: 'YouTube', short: 'YT' },
+]
+const ALL_NETWORKS = NETWORKS.map(n => n.id)
+const WEEKDAYS = ['lun.', 'mar.', 'mer.', 'jeu.', 'ven.', 'sam.', 'dim.']
+const WEEKDAYS_LONG = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi']
+const MONTHS = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre']
+const FIRST_MONTH = { y: 2026, m: 10 }
 
-function formatDay(iso) {
-  const [y, m, d] = iso.split('-').map(Number)
-  const date = new Date(y, m - 1, d)
-  return `${WEEKDAYS[date.getDay()]} ${d} ${MONTHS[m - 1]}`
+function iso(y, m, d) {
+  return new Date(Date.UTC(y, m, d)).toISOString().slice(0, 10)
 }
 
-function nextDay(iso) {
-  const [y, m, d] = iso.split('-').map(Number)
-  const date = new Date(Date.UTC(y, m - 1, d + 1))
-  return date.toISOString().slice(0, 10)
+function todayIso() {
+  const d = new Date()
+  return iso(d.getFullYear(), d.getMonth(), d.getDate())
+}
+
+function longDay(day) {
+  const [y, m, d] = day.split('-').map(Number)
+  return `${WEEKDAYS_LONG[new Date(y, m - 1, d).getDay()]} ${d} ${MONTHS[m - 1].toLowerCase()}`
+}
+
+// Weeks (Monday first) covering the month, as arrays of ISO dates.
+function monthWeeks(y, m) {
+  const first = new Date(Date.UTC(y, m, 1))
+  const offset = (first.getUTCDay() + 6) % 7
+  const daysInMonth = new Date(Date.UTC(y, m + 1, 0)).getUTCDate()
+  const weeks = []
+  for (let start = 1 - offset; start <= daysInMonth; start += 7) {
+    weeks.push(Array.from({ length: 7 }, (_, i) => iso(y, m, start + i)))
+  }
+  return weeks
 }
 
 function isPad(v) {
   return v.bertrand_vote === 'pad' && v.sebastien_vote === 'pad' && v.pierreemmanuel_vote === 'pad'
 }
 
+function isRejected(v) {
+  return [v.bertrand_vote, v.sebastien_vote, v.pierreemmanuel_vote].includes('non')
+}
+
 function videoLabel(v) {
   return v.pad_number ? `#${String(v.pad_number).padStart(2, '0')}_${v.title}` : v.title
+}
+
+function shortName(v) {
+  const parts = v.title.replace(/^SKROLL_/, '').split('_')
+  while (parts.length > 1 && /^\d+$/.test(parts[0])) parts.shift()
+  return parts.join(' ').replace(/ 1$/, '')
 }
 
 function defaultCaption(v) {
@@ -41,21 +78,32 @@ function defaultCaption(v) {
   return `${name}\n\nArchives Cinémathèque de Bretagne${nums.length ? ` (n° ${nums.join(', ')})` : ''}. 100 % archives, 0 % IA.\n\n#skroll #bretagne #archives #humour`
 }
 
+function readList(key, fallback) {
+  try { return JSON.parse(localStorage.getItem(key)) || fallback } catch { return fallback }
+}
+
 export default function DiffusionPage() {
   const router = useRouter()
   const [currentUser, setCurrentUser] = useState(null)
-  const [slots, setSlots] = useState([])
+  const [entries, setEntries] = useState([])
   const [videos, setVideos] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [openCaption, setOpenCaption] = useState(null)
-  const [dragIndex, setDragIndex] = useState(null)
-  const [busy, setBusy] = useState(false)
+  const [month, setMonth] = useState(FIRST_MONTH)
+  const [shownNetworks, setShownNetworks] = useState(ALL_NETWORKS)
+  const [shownFormats, setShownFormats] = useState(Object.keys(FORMATS))
+  const [editingId, setEditingId] = useState(null)
+  const [dropDay, setDropDay] = useState(null)
+  const [uploading, setUploading] = useState(null)
 
   useEffect(() => {
     const saved = localStorage.getItem('skroll_user')
     if (!saved) { router.push('/'); return }
     setCurrentUser(saved)
+    setShownNetworks(readList('skroll_diff_networks', ALL_NETWORKS))
+    setShownFormats(readList('skroll_diff_formats', Object.keys(FORMATS)))
+    const now = new Date()
+    if (now.getFullYear() * 12 + now.getMonth() > FIRST_MONTH.y * 12 + FIRST_MONTH.m) setMonth({ y: now.getFullYear(), m: now.getMonth() })
     load()
     const onFocus = () => load()
     window.addEventListener('focus', onFocus)
@@ -64,70 +112,116 @@ export default function DiffusionPage() {
 
   async function load() {
     const [s, v] = await Promise.all([
-      supabase.from('broadcast_schedule').select('*').order('day', { ascending: true }),
-      supabase.from('videos').select('id,title,file_url,pad_number,bertrand_vote,sebastien_vote,pierreemmanuel_vote,video_types(name)')
+      supabase.from('broadcast_schedule').select('*').order('day', { ascending: true }).order('created_at', { ascending: true }),
+      supabase.from('videos').select('id,title,file_url,pad_number,bertrand_vote,sebastien_vote,pierreemmanuel_vote')
     ])
     if (s.error || v.error) setError('Impossible de charger le planning. Rechargez la page.')
-    else { setSlots(s.data); setVideos(v.data); setError('') }
+    else { setEntries(s.data); setVideos(v.data); setError('') }
     setLoading(false)
   }
 
   const byId = Object.fromEntries(videos.map(v => [v.id, v]))
-  const scheduledIds = new Set(slots.map(s => s.video_id).filter(Boolean))
-  const unscheduled = videos.filter(v => isPad(v) && !scheduledIds.has(v.id)).sort((a, b) => a.pad_number - b.pad_number)
-  const locked = s => !!s.metricool_status
+  const usedIds = new Set(entries.flatMap(e => e.video_ids))
+  const unscheduled = videos.filter(v => isPad(v) && !usedIds.has(v.id)).sort((a, b) => a.pad_number - b.pad_number)
+  const pickable = videos.filter(v => !isRejected(v)).sort((a, b) => (a.pad_number || 999) - (b.pad_number || 999) || a.title.localeCompare(b.title))
+  const locked = e => !!e.metricool_status
+  const visible = e => shownFormats.includes(e.format) && e.networks.some(n => shownNetworks.includes(n))
+  const editing = entries.find(e => e.id === editingId)
 
-  // Move the content (video + caption) at index `from` to index `to`; days stay fixed, content between shifts by one.
-  async function move(from, to) {
-    if (from === to || to < 0 || to >= slots.length || busy) return
-    const lo = Math.min(from, to), hi = Math.max(from, to)
-    if (slots.slice(lo, hi + 1).some(locked)) { setError('Une des vidéos concernées est déjà programmée dans Metricool : déplacement impossible.'); return }
-    const contents = slots.map(s => ({ video_id: s.video_id, caption: s.caption }))
-    const [item] = contents.splice(from, 1)
-    contents.splice(to, 0, item)
-    const next = slots.map((s, i) => ({ ...s, ...contents[i] }))
-    setSlots(next)
-    setBusy(true)
-    const changed = next.slice(lo, hi + 1)
-    const results = await Promise.all(changed.map(s => supabase.from('broadcast_schedule').update({ video_id: s.video_id, caption: s.caption }).eq('id', s.id)))
-    setBusy(false)
-    if (results.some(r => r.error)) { setError('Ordre pas entièrement enregistré. Rechargez la page.'); load() }
-    else setError('')
+  function entryName(e) {
+    if (e.title) return e.title
+    const names = e.video_ids.map(id => byId[id]).filter(Boolean)
+    if (!names.length) return 'Sans vidéo'
+    if (e.format === 'unique') return `${names[0].pad_number ? '#' + String(names[0].pad_number).padStart(2, '0') + ' ' : ''}${shortName(names[0])}`
+    return names.map(shortName).join(' + ')
   }
 
-  async function updateSlot(id, patch) {
-    setSlots(ss => ss.map(s => s.id === id ? { ...s, ...patch } : s))
+  async function updateEntry(id, patch) {
+    setEntries(es => es.map(e => e.id === id ? { ...e, ...patch } : e))
     const { error } = await supabase.from('broadcast_schedule').update(patch).eq('id', id)
     if (error) { setError('Pas enregistré. Vérifiez la connexion et réessayez.'); load() }
   }
 
-  async function setVideo(slot, videoId) {
+  async function addEntry(day, videoId) {
     const v = byId[videoId]
-    await updateSlot(slot.id, { video_id: videoId || null, caption: v ? defaultCaption(v) : '' })
+    const { data, error } = await supabase.from('broadcast_schedule')
+      .insert([{ day, format: 'unique', video_ids: v ? [v.id] : [], caption: v ? defaultCaption(v) : '' }]).select().single()
+    if (error) { setError('Publication non ajoutée. Réessayez.'); return }
+    setEntries(es => [...es, data])
+    if (!v) setEditingId(data.id)
   }
 
-  async function addDay(videoId) {
-    const last = slots[slots.length - 1]
-    const day = last ? nextDay(last.day) : '2026-11-01'
-    const v = byId[videoId]
-    const { error } = await supabase.from('broadcast_schedule').insert([{ day, video_id: videoId || null, caption: v ? defaultCaption(v) : '' }])
-    if (error) setError('Jour non ajouté. Réessayez.')
-    load()
+  async function deleteEntry(e) {
+    if (!confirm(`Supprimer la publication « ${entryName(e)} » du ${longDay(e.day)} ?`)) return
+    setEditingId(null)
+    setEntries(es => es.filter(x => x.id !== e.id))
+    const { error } = await supabase.from('broadcast_schedule').delete().eq('id', e.id)
+    if (error) { setError('Suppression impossible.'); load() }
   }
 
-  async function removeLastDay() {
-    const last = slots[slots.length - 1]
-    if (!last || locked(last)) return
-    if (last.video_id && !confirm(`Supprimer le ${formatDay(last.day)} ? La vidéo retourne dans « à programmer ».`)) return
-    const { error } = await supabase.from('broadcast_schedule').delete().eq('id', last.id)
-    if (error) setError('Suppression impossible.')
-    load()
+  // Dropping on a day already used on the same network swaps the two, so the one-a-day rhythm stays intact.
+  async function dropOn(day, payload) {
+    setDropDay(null)
+    if (payload.videoId) return addEntry(day, payload.videoId)
+    const moving = entries.find(e => e.id === payload.entryId)
+    if (!moving || moving.day === day || locked(moving)) return
+    const other = entries.find(e => e.day === day && e.id !== moving.id && visible(e) && e.networks.some(n => moving.networks.includes(n)))
+    if (other && locked(other)) { setError('Ce jour contient une publication déjà envoyée à Metricool : échange impossible.'); return }
+    await updateEntry(moving.id, { day })
+    if (other) await updateEntry(other.id, { day: moving.day })
+  }
+
+  async function uploadFinal(e, file) {
+    if (!file) return
+    setUploading(e.id)
+    const safe = file.name.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^\w.-]/g, '_')
+    const filePath = `diffusion/${Date.now()}-${safe}`
+    const { error } = await supabase.storage.from('Videos').upload(filePath, file, { cacheControl: '3600', upsert: false })
+    if (error) { setError(`Envoi du fichier impossible : ${error.message}`); setUploading(null); return }
+    const { data } = supabase.storage.from('Videos').getPublicUrl(filePath)
+    await updateEntry(e.id, { final_url: data.publicUrl, final_name: file.name, final_uploaded_at: new Date().toISOString(), final_uploaded_by: currentUser })
+    setUploading(null)
+  }
+
+  function toggle(list, setList, key, value) {
+    const next = list.includes(value) ? list.filter(x => x !== value) : [...list, value]
+    setList(next)
+    localStorage.setItem(key, JSON.stringify(next))
+  }
+
+  function shiftMonth(delta) {
+    setMonth(({ y, m }) => ({ y: y + Math.floor((m + delta) / 12), m: (m + delta + 12) % 12 }))
   }
 
   if (!currentUser) return null
 
-  const filled = slots.filter(s => s.video_id).length
-  const sent = slots.filter(locked).length
+  const today = todayIso()
+  const weeks = monthWeeks(month.y, month.m)
+  const monthPrefix = `${month.y}-${String(month.m + 1).padStart(2, '0')}`
+  const monthEntries = entries.filter(e => e.day.startsWith(monthPrefix) && visible(e))
+  const readyCount = entries.filter(e => e.final_url).length
+  const dayEntries = day => entries.filter(e => e.day === day && visible(e))
+
+  const dragProps = payload => ({
+    draggable: true,
+    onDragStart: ev => ev.dataTransfer.setData('text/plain', JSON.stringify(payload)),
+  })
+  const dropProps = day => ({
+    onDragOver: ev => { ev.preventDefault(); setDropDay(day) },
+    onDragLeave: () => setDropDay(d => d === day ? null : d),
+    onDrop: ev => { ev.preventDefault(); try { dropOn(day, JSON.parse(ev.dataTransfer.getData('text/plain'))) } catch { setDropDay(null) } },
+  })
+
+  const Chip = ({ e }) => (
+    <button {...(locked(e) ? {} : dragProps({ entryId: e.id }))} onClick={() => setEditingId(e.id)}
+      title={`${entryName(e)} · ${FORMATS[e.format].label}${e.final_url ? '' : ' · fichier final manquant'}`}
+      className={`w-full text-left text-xs rounded-md border-l-4 px-1.5 py-1 flex items-center gap-1 ${FORMATS[e.format].chip} ${e.final_url ? '' : 'border-dashed opacity-80'} ${locked(e) ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing'}`}>
+      <span className="line-clamp-2 break-words flex-1 font-medium leading-tight">{entryName(e)}</span>
+      {e.networks.length < NETWORKS.length && <span className="text-[10px] opacity-60 shrink-0">{NETWORKS.filter(n => e.networks.includes(n.id)).map(n => n.short).join(' ')}</span>}
+      {locked(e) ? <span className="shrink-0 text-green-700" aria-label="Envoyé à Metricool">✓</span>
+        : e.final_url ? <span className="shrink-0 w-1.5 h-1.5 rounded-full bg-green-500" aria-label="Fichier final prêt" /> : null}
+    </button>
+  )
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -139,108 +233,252 @@ export default function DiffusionPage() {
         </div>
       </header>
 
-      <main className="max-w-5xl mx-auto px-4 md:px-6 py-6">
-        <div className="flex flex-wrap items-end justify-between gap-4 mb-5">
-          <div>
-            <h2 className="text-2xl md:text-3xl font-bold text-gray-900">Planning de diffusion</h2>
-            <p className="text-sm text-gray-500 mt-1 max-w-2xl">Une vidéo par jour à partir du 1er novembre. Changez l'ordre avec les flèches (ou en glissant une ligne sur ordinateur) : les dates restent, les vidéos se décalent.</p>
-          </div>
-          <div className="flex gap-6">
-            <div><p className="text-2xl font-bold text-gray-900 tabular-nums">{filled}</p><p className="text-xs text-gray-500">jours programmés</p></div>
-            <div><p className="text-2xl font-bold text-gray-900 tabular-nums">{sent}/{filled}</p><p className="text-xs text-gray-500">envoyés à Metricool</p></div>
-          </div>
-        </div>
-
-        {error && <p className="mb-4 text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
-        {loading && <p className="text-gray-500">Chargement…</p>}
-
-        <div className="bg-white rounded-xl shadow-sm divide-y">
-          {slots.map((slot, i) => {
-            const v = byId[slot.video_id]
-            const warn = v && !isPad(v)
-            return (
-              <div key={slot.id}
-                draggable={!locked(slot)}
-                onDragStart={() => setDragIndex(i)}
-                onDragOver={e => e.preventDefault()}
-                onDrop={() => { move(dragIndex, i); setDragIndex(null) }}
-                className={`px-3 py-2 ${dragIndex === i ? 'opacity-40' : ''} ${slot.day.endsWith('-01') && i > 0 ? 'border-t-2 border-gray-900' : ''}`}>
-                <div className="flex items-center gap-2 md:gap-3">
-                  <div className="w-24 shrink-0 whitespace-nowrap">
-                    <p className="text-sm font-semibold text-gray-900 tabular-nums">{formatDay(slot.day)}</p>
-                    <p className="text-xs text-gray-400 tabular-nums">J{i + 1}</p>
-                  </div>
-                  <div className="flex flex-col shrink-0">
-                    <button onClick={() => move(i, i - 1)} disabled={i === 0 || locked(slot) || busy} aria-label="Avancer d'un jour" className="text-gray-400 hover:text-gray-900 disabled:opacity-20 leading-none px-1">▲</button>
-                    <button onClick={() => move(i, i + 1)} disabled={i === slots.length - 1 || locked(slot) || busy} aria-label="Reculer d'un jour" className="text-gray-400 hover:text-gray-900 disabled:opacity-20 leading-none px-1">▼</button>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    {v ? (
-                      <>
-                        <button onClick={() => router.push(`/video/${v.id}`)} className="block text-left text-sm font-medium text-gray-900 hover:text-blue-600 break-all">{videoLabel(v)}</button>
-                        <p className="text-xs text-gray-500">
-                          {v.video_types?.name || 'sans type'}
-                          {warn && <span className="ml-2 text-red-600 font-semibold">n'est plus en PAD</span>}
-                        </p>
-                      </>
-                    ) : (
-                      <select value="" onChange={e => setVideo(slot, e.target.value)} className="border border-orange-300 text-orange-700 rounded-lg px-2 py-1.5 text-sm max-w-full">
-                        <option value="">Choisir une vidéo…</option>
-                        {unscheduled.map(u => <option key={u.id} value={u.id}>{videoLabel(u)}</option>)}
-                      </select>
-                    )}
-                  </div>
-                  <input type="time" aria-label="Heure de publication" value={slot.post_time || ''} disabled={locked(slot)}
-                    onChange={e => updateSlot(slot.id, { post_time: e.target.value })}
-                    className="hidden sm:block border rounded-lg px-2 py-1 text-sm text-gray-700 w-[92px]" />
-                  {v && <button onClick={() => setOpenCaption(openCaption === slot.id ? null : slot.id)} className="text-xs font-medium text-blue-600 hover:text-blue-800 shrink-0">Texte</button>}
-                  {locked(slot)
-                    ? <span className="text-xs font-semibold text-green-700 bg-green-50 rounded-full px-2 py-0.5 shrink-0">Metricool ✓</span>
-                    : v && <button onClick={() => setVideo(slot, null)} aria-label="Retirer la vidéo de ce jour" className="text-gray-400 hover:text-red-500 text-sm shrink-0">✕</button>}
-                </div>
-                {openCaption === slot.id && v && (
-                  <div className="mt-2 md:ml-[134px] space-y-2">
-                    <CaptionInput slot={slot} disabled={locked(slot)} onSave={caption => updateSlot(slot.id, { caption })} />
-                    <input type="time" aria-label="Heure de publication" value={slot.post_time || ''} disabled={locked(slot)}
-                      onChange={e => updateSlot(slot.id, { post_time: e.target.value })}
-                      className="sm:hidden border rounded-lg px-2 py-1 text-sm text-gray-700" />
-                  </div>
-                )}
+      <div className="lg:flex">
+        <aside className="lg:w-60 lg:shrink-0 lg:min-h-[calc(100vh-57px)] bg-white lg:border-r px-4 py-4 lg:py-6 space-y-5">
+          <div className="flex flex-wrap gap-x-8 gap-y-4 lg:block lg:space-y-5">
+            <div>
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Réseaux</p>
+              <div className="flex gap-3 lg:block lg:space-y-1.5">
+                {NETWORKS.map(n => (
+                  <label key={n.id} className="flex items-center gap-2 text-sm text-gray-800">
+                    <input type="checkbox" checked={shownNetworks.includes(n.id)} onChange={() => toggle(shownNetworks, setShownNetworks, 'skroll_diff_networks', n.id)} className="w-4 h-4" />
+                    {n.label}
+                  </label>
+                ))}
               </div>
-            )
-          })}
-        </div>
-
-        {!loading && (
-          <div className="mt-3 flex flex-wrap gap-3 items-center">
-            <button onClick={() => addDay(null)} className="text-sm font-medium text-blue-600 hover:text-blue-800">+ Ajouter un jour</button>
-            {slots.length > 0 && <button onClick={removeLastDay} className="text-sm text-gray-500 hover:text-red-600">Supprimer le dernier jour</button>}
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Formats</p>
+              <div className="flex flex-wrap gap-3 lg:block lg:space-y-1.5">
+                {Object.entries(FORMATS).map(([id, f]) => (
+                  <label key={id} className="flex items-center gap-2 text-sm text-gray-800">
+                    <input type="checkbox" checked={shownFormats.includes(id)} onChange={() => toggle(shownFormats, setShownFormats, 'skroll_diff_formats', id)} className="w-4 h-4" />
+                    <span className={`w-2.5 h-2.5 rounded-sm ${f.dot}`} />{f.label}
+                  </label>
+                ))}
+              </div>
+            </div>
           </div>
-        )}
+          <div className="text-xs text-gray-500 space-y-1">
+            <p><span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500 mr-1.5 align-middle" />fichier final déposé</p>
+            <p><span className="inline-block w-4 border-t-2 border-dashed border-gray-400 mr-1.5 align-middle" />pointillés : fichier final manquant</p>
+            <p><span className="text-green-700 mr-1.5">✓</span>envoyé à Metricool</p>
+          </div>
+          {unscheduled.length > 0 && (
+            <div className="hidden lg:block">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">PAD à programmer ({unscheduled.length})</p>
+              <p className="text-xs text-gray-500 mb-2">Glissez une vidéo sur un jour.</p>
+              <div className="space-y-1 max-h-[40vh] overflow-y-auto">
+                {unscheduled.map(v => (
+                  <div key={v.id} {...dragProps({ videoId: v.id })} className="text-xs bg-gray-100 rounded px-2 py-1 truncate cursor-grab">{videoLabel(v)}</div>
+                ))}
+              </div>
+            </div>
+          )}
+        </aside>
 
-        {!loading && unscheduled.length > 0 && (
-          <section className="mt-8">
-            <h3 className="font-bold text-gray-900 border-b-2 border-gray-900 pb-1.5 mb-2">Vidéos PAD pas encore programmées ({unscheduled.length})</h3>
-            {unscheduled.map(u => (
-              <div key={u.id} className="flex items-center justify-between gap-2 py-1.5 border-b border-dashed border-gray-200">
-                <span className="text-sm text-gray-800 truncate">{videoLabel(u)}</span>
-                <button onClick={() => addDay(u.id)} className="text-sm font-medium text-blue-600 hover:text-blue-800 shrink-0">Ajouter à la fin</button>
+        <main className="flex-1 min-w-0 px-4 md:px-6 py-5">
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+            <div>
+              <h2 className="text-2xl md:text-3xl font-bold text-gray-900">{MONTHS[month.m]} {month.y}</h2>
+              <p className="text-sm text-gray-500">{monthEntries.length} publications ce mois · fichiers finaux : {readyCount}/{entries.length}</p>
+            </div>
+            <div className="flex items-center gap-1">
+              <button onClick={() => shiftMonth(-1)} aria-label="Mois précédent" className="border rounded-lg w-9 h-9 bg-white hover:bg-gray-100">‹</button>
+              <button onClick={() => { const n = new Date(); setMonth({ y: n.getFullYear(), m: n.getMonth() }) }} className="border rounded-lg px-3 h-9 text-sm bg-white hover:bg-gray-100">Aujourd'hui</button>
+              <button onClick={() => shiftMonth(1)} aria-label="Mois suivant" className="border rounded-lg w-9 h-9 bg-white hover:bg-gray-100">›</button>
+            </div>
+          </div>
+
+          {error && <p className="mb-4 text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
+          {loading && <p className="text-gray-500">Chargement…</p>}
+
+          <p className="hidden md:block text-xs text-gray-500 mb-2">Glissez une publication sur un autre jour pour la déplacer ; si ce jour est déjà pris sur le même réseau, les deux s'échangent. Cliquez pour modifier ou remplacer le fichier.</p>
+
+          {/* Month grid (tablet and up) */}
+          <div className="hidden md:block bg-white rounded-xl shadow-sm overflow-hidden">
+            <div className="grid grid-cols-7 border-b">
+              {WEEKDAYS.map(d => <div key={d} className="text-right text-sm text-gray-500 px-2 py-1.5">{d}</div>)}
+            </div>
+            {weeks.map(week => (
+              <div key={week[0]} className="grid grid-cols-7 border-b last:border-b-0">
+                {week.map((day, i) => {
+                  const inMonth = day.startsWith(monthPrefix)
+                  const list = dayEntries(day)
+                  return (
+                    <div key={day} {...dropProps(day)}
+                      className={`group min-h-[112px] border-l first:border-l-0 p-1.5 flex flex-col gap-1 ${i > 4 ? 'bg-gray-50' : ''} ${dropDay === day ? 'ring-2 ring-inset ring-blue-400 bg-blue-50' : ''}`}>
+                      <div className="flex items-center justify-between">
+                        <button onClick={() => addEntry(day)} aria-label={`Ajouter une publication le ${longDay(day)}`} className="text-gray-300 hover:text-blue-600 text-sm leading-none opacity-0 group-hover:opacity-100 px-1">+</button>
+                        <span className={`text-sm tabular-nums ${day === today ? 'bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center font-semibold' : inMonth ? 'text-gray-800' : 'text-gray-300'}`}>
+                          {Number(day.slice(8))}{day.endsWith('-01') ? ` ${MONTHS[Number(day.slice(5, 7)) - 1].slice(0, 4).toLowerCase()}.` : ''}
+                        </span>
+                      </div>
+                      {list.map(e => <Chip key={e.id} e={e} />)}
+                    </div>
+                  )
+                })}
               </div>
             ))}
-          </section>
-        )}
-      </main>
+          </div>
+
+          {/* Agenda list (phone) */}
+          <div className="md:hidden bg-white rounded-xl shadow-sm divide-y">
+            {weeks.flat().filter(d => d.startsWith(monthPrefix)).map(day => {
+              const list = dayEntries(day)
+              return (
+                <div key={day} className="flex gap-3 px-3 py-2">
+                  <div className={`w-12 shrink-0 text-center ${day === today ? 'text-red-500' : 'text-gray-800'}`}>
+                    <p className="text-[11px] uppercase text-gray-400">{longDay(day).slice(0, 3)}</p>
+                    <p className="text-lg font-semibold tabular-nums leading-tight">{Number(day.slice(8))}</p>
+                  </div>
+                  <div className="flex-1 min-w-0 space-y-1 self-center">
+                    {list.map(e => <Chip key={e.id} e={e} />)}
+                    {!list.length && <button onClick={() => addEntry(day)} className="text-xs text-gray-400">+ Ajouter</button>}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </main>
+      </div>
+
+      {editing && (
+        <Editor entry={editing} locked={locked(editing)} pickable={pickable} byId={byId} uploading={uploading === editing.id}
+          name={entryName(editing)} onClose={() => setEditingId(null)} onChange={patch => updateEntry(editing.id, patch)}
+          onUpload={file => uploadFinal(editing, file)} onDelete={() => deleteEntry(editing)} />
+      )}
     </div>
   )
 }
 
-function CaptionInput({ slot, disabled, onSave }) {
-  const [value, setValue] = useState(slot.caption || '')
-  useEffect(() => setValue(slot.caption || ''), [slot.caption])
+function Editor({ entry, locked, pickable, byId, uploading, name, onClose, onChange, onUpload, onDelete }) {
+  const fileInput = useRef(null)
+  const format = FORMATS[entry.format]
+  const slotCount = format.slots || entry.video_ids.length + 1
+  const preview = entry.final_url || byId[entry.video_ids[0]]?.file_url
+
+  useEffect(() => {
+    const onKey = ev => ev.key === 'Escape' && onClose()
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  function setFormat(f) {
+    const slots = FORMATS[f].slots
+    onChange({ format: f, video_ids: slots ? entry.video_ids.slice(0, slots) : entry.video_ids })
+  }
+
+  function setVideo(i, id) {
+    const ids = [...entry.video_ids]
+    ids[i] = id
+    const clean = ids.filter(Boolean)
+    const patch = { video_ids: clean }
+    if (entry.format === 'unique' && id && !entry.caption) patch.caption = defaultCaption(byId[id])
+    onChange(patch)
+  }
+
+  function toggleNetwork(n) {
+    const next = entry.networks.includes(n) ? entry.networks.filter(x => x !== n) : [...entry.networks, n]
+    if (next.length) onChange({ networks: next })
+  }
+
+  const field = 'w-full border rounded-lg px-3 py-2 text-sm text-gray-800 focus:outline-none focus:border-blue-400 disabled:bg-gray-50'
+
   return (
-    <textarea value={value} rows={5} disabled={disabled} aria-label="Texte de la publication"
-      onChange={e => setValue(e.target.value)}
-      onBlur={() => { if (value !== (slot.caption || '')) onSave(value) }}
-      className="w-full border rounded-lg px-3 py-2 text-sm text-gray-800 focus:outline-none focus:border-blue-400" />
+    <div className="fixed inset-0 z-40 bg-black/30 flex justify-end" onClick={onClose}>
+      <div className="w-full max-w-md bg-white h-full overflow-y-auto shadow-xl" onClick={ev => ev.stopPropagation()}>
+        <div className="sticky top-0 bg-white border-b px-5 py-3 flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-xs text-gray-500">{longDay(entry.day)}</p>
+            <h3 className="font-bold text-gray-900 break-words">{name}</h3>
+          </div>
+          <button onClick={onClose} aria-label="Fermer" className="text-gray-400 hover:text-gray-800 text-xl leading-none">×</button>
+        </div>
+
+        <div className="px-5 py-4 space-y-5">
+          {locked && <p className="text-sm text-green-800 bg-green-50 rounded-lg px-3 py-2">Déjà envoyée à Metricool : modifiez-la dans Metricool, ou demandez à Claude de la retirer d'abord.</p>}
+
+          <section>
+            <p className="text-sm font-semibold text-gray-900 mb-2">Fichier à publier</p>
+            {preview && <video key={preview} src={preview} controls preload="metadata" playsInline className="w-full max-h-72 bg-black rounded-lg mb-2" />}
+            {entry.final_url
+              ? <p className="text-xs text-gray-600 break-all">Final : {entry.final_name}{entry.final_uploaded_by ? ` · déposé par ${entry.final_uploaded_by}` : ''}{entry.final_uploaded_at ? ` le ${new Date(entry.final_uploaded_at).toLocaleDateString('fr-FR')}` : ''}</p>
+              : <p className="text-xs text-orange-700">Pas encore de fichier final (mixé, habillé). {preview ? 'Aperçu : version de travail du site.' : ''}</p>}
+            <input ref={fileInput} type="file" accept="video/*" className="hidden" onChange={ev => { onUpload(ev.target.files[0]); ev.target.value = '' }} />
+            <button onClick={() => fileInput.current.click()} disabled={locked || uploading}
+              className="mt-2 bg-gray-900 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-40">
+              {uploading ? 'Envoi en cours…' : entry.final_url ? 'Remplacer le fichier final' : 'Déposer le fichier final'}
+            </button>
+          </section>
+
+          <section className="grid grid-cols-2 gap-3">
+            <label className="text-sm font-semibold text-gray-900">Date
+              <input type="date" value={entry.day} disabled={locked} onChange={ev => ev.target.value && onChange({ day: ev.target.value })} className={`${field} mt-1 font-normal`} />
+            </label>
+            <label className="text-sm font-semibold text-gray-900">Heure
+              <input type="time" value={entry.post_time || ''} disabled={locked} onChange={ev => onChange({ post_time: ev.target.value })} className={`${field} mt-1 font-normal`} />
+            </label>
+          </section>
+
+          <section>
+            <p className="text-sm font-semibold text-gray-900 mb-2">Format</p>
+            <div className="flex flex-wrap gap-2">
+              {Object.entries(FORMATS).map(([id, f]) => (
+                <button key={id} onClick={() => setFormat(id)} disabled={locked}
+                  className={`flex items-center gap-2 border rounded-lg px-3 py-1.5 text-sm ${entry.format === id ? 'border-gray-900 font-semibold' : 'text-gray-600'}`}>
+                  <span className={`w-2.5 h-2.5 rounded-sm ${f.dot}`} />{f.label}
+                </button>
+              ))}
+            </div>
+          </section>
+
+          <section>
+            <p className="text-sm font-semibold text-gray-900 mb-2">Réseaux</p>
+            <div className="flex gap-4">
+              {NETWORKS.map(n => (
+                <label key={n.id} className="flex items-center gap-2 text-sm text-gray-800">
+                  <input type="checkbox" checked={entry.networks.includes(n.id)} disabled={locked} onChange={() => toggleNetwork(n.id)} className="w-4 h-4" />{n.label}
+                </label>
+              ))}
+            </div>
+          </section>
+
+          <section>
+            <p className="text-sm font-semibold text-gray-900 mb-2">{entry.format === 'unique' ? 'Vidéo source' : 'Vidéos sources'}</p>
+            <div className="space-y-2">
+              {Array.from({ length: slotCount }, (_, i) => (
+                <select key={i} value={entry.video_ids[i] || ''} disabled={locked} onChange={ev => setVideo(i, ev.target.value)} className={field}>
+                  <option value="">{i < entry.video_ids.length ? 'Retirer' : entry.format === 'episode' ? '+ Ajouter une vidéo…' : 'Choisir une vidéo…'}</option>
+                  {pickable.map(v => <option key={v.id} value={v.id}>{videoLabel(v)}{isPad(v) ? '' : ' (pas PAD)'}</option>)}
+                </select>
+              ))}
+            </div>
+          </section>
+
+          <section>
+            <label className="text-sm font-semibold text-gray-900">Titre {entry.format === 'unique' && <span className="font-normal text-gray-500">(facultatif)</span>}
+              <BlurInput value={entry.title || ''} disabled={locked} placeholder={name} onSave={title => onChange({ title })} className={`${field} mt-1 font-normal`} />
+            </label>
+            <p className="text-xs text-gray-500 mt-1">Sert de titre YouTube.</p>
+          </section>
+
+          <section>
+            <label className="text-sm font-semibold text-gray-900">Texte de la publication
+              <BlurInput multiline value={entry.caption || ''} disabled={locked} onSave={caption => onChange({ caption })} className={`${field} mt-1 font-normal`} />
+            </label>
+          </section>
+
+          {!locked && <button onClick={onDelete} className="text-sm text-red-600 hover:text-red-800">Supprimer cette publication</button>}
+        </div>
+      </div>
+    </div>
   )
+}
+
+function BlurInput({ value, onSave, multiline, ...props }) {
+  const [draft, setDraft] = useState(value)
+  useEffect(() => setDraft(value), [value])
+  const common = { ...props, value: draft, onChange: ev => setDraft(ev.target.value), onBlur: () => { if (draft !== value) onSave(draft) } }
+  return multiline ? <textarea rows={6} {...common} /> : <input {...common} />
 }
