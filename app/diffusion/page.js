@@ -16,11 +16,13 @@ const NETWORKS = [
   { id: 'youtube', label: 'YouTube', short: 'YT' },
 ]
 const ALL_NETWORKS = NETWORKS.map(n => n.id)
-// Diffusion strategy, one slot a day alternating: short Mon/Wed/Thu/Sat, compil Tue/Fri, episode on Sunday
+// Diffusion strategy. November: a reel every day at 18:30 on the four networks, reposted as an Instagram story the next day at noon.
+// From December (to confirm after the November review), one slot a day alternating: reel Mon/Wed/Thu/Sat, compil Tue/Fri, episode on Sunday
 // (the full 2 minutes on YouTube + Facebook, an extract as a Reel on Instagram + TikTok pointing to it).
 const FORMATS = {
-  short: { label: 'Short', chip: 'bg-blue-50 border-blue-500 text-blue-950', dot: 'bg-blue-500', slots: 1, time: '19:00', networks: ALL_NETWORKS, hint: '9:16, 15–45 s, sur les quatre réseaux.' },
-  compil: { label: 'Compil (série de 3)', chip: 'bg-orange-50 border-orange-500 text-orange-950', dot: 'bg-orange-500', slots: 3, time: '19:00', networks: ALL_NETWORKS, hint: '9:16, plus de 61 s : trois shorts déjà diffusés, montés ensemble.' },
+  short: { label: 'Réel / Short', chip: 'bg-blue-50 border-blue-500 text-blue-950', dot: 'bg-blue-500', slots: 1, time: '18:30', networks: ALL_NETWORKS, hint: '9:16, 15–45 s : Reel Instagram et Facebook, TikTok, YouTube Short.' },
+  story: { label: 'Story Instagram', chip: 'bg-sky-50 border-sky-300 text-sky-900', dot: 'bg-sky-300', slots: 0, time: '12:00', networks: ['instagram'], hint: 'Repost du réel de la veille en story, à midi.' },
+  compil: { label: 'Compil (série de 3)', chip: 'bg-orange-50 border-orange-500 text-orange-950', dot: 'bg-orange-500', slots: 3, time: '18:30', networks: ALL_NETWORKS, hint: '9:16, plus de 61 s : trois shorts déjà diffusés, montés ensemble.' },
   '2min': { label: 'Épisode 2 min', chip: 'bg-purple-50 border-purple-500 text-purple-950', dot: 'bg-purple-500', slots: null, time: '10:00', networks: ['youtube', 'facebook'], hint: '16:9, environ 2 minutes, sur YouTube et Facebook.' },
   extrait: { label: "Extrait d'épisode", chip: 'bg-fuchsia-50 border-fuchsia-400 text-fuchsia-950', dot: 'bg-fuchsia-400', slots: 0, time: '10:00', networks: ['instagram', 'tiktok'], hint: "Reel 9:16 tiré de l'épisode, avec renvoi vers YouTube (lien en bio)." },
 }
@@ -54,6 +56,11 @@ function monthWeeks(y, m) {
     weeks.push(Array.from({ length: 7 }, (_, i) => iso(y, m, start + i)))
   }
   return weeks
+}
+
+function nextDay(day) {
+  const [y, m, d] = day.split('-').map(Number)
+  return iso(y, m - 1, d + 1)
 }
 
 function isPad(v) {
@@ -137,11 +144,13 @@ export default function DiffusionPage() {
   const unscheduled = videos.filter(v => !isRejected(v) && !usedIds.has(v.id)).sort((a, b) => (a.pad_number || 999) - (b.pad_number || 999) || a.title.localeCompare(b.title))
   const pickable = videos.filter(v => !isRejected(v)).sort((a, b) => (a.pad_number || 999) - (b.pad_number || 999) || a.title.localeCompare(b.title))
   const locked = e => !!e.metricool_status
-  const todo = e => !e.final_url
+  const parentOf = e => e.parent_id && entries.find(x => x.id === e.parent_id)
+  const todo = e => !(e.format === 'story' ? parentOf(e)?.final_url : e.final_url)
   const visible = e => shownFormats.includes(e.format) && e.networks.some(n => shownNetworks.includes(n)) && (!onlyTodo || todo(e))
   const editing = entries.find(e => e.id === editingId)
 
   function entryName(e) {
+    if (e.format === 'story') { const p = parentOf(e); return `Story · ${p ? entryName(p) : 'réel supprimé'}` }
     const names = e.video_ids.map(id => byId[id]).filter(Boolean)
     if (e.format === 'short') {
       const v = names[0] && `${names[0].pad_number ? '#' + String(names[0].pad_number).padStart(2, '0') + ' ' : ''}${shortName(names[0])}`
@@ -155,6 +164,8 @@ export default function DiffusionPage() {
     setEntries(es => es.map(e => e.id === id ? { ...e, ...patch } : e))
     const { error } = await supabase.from('broadcast_schedule').update(patch).eq('id', id)
     if (error) { setError('Pas enregistré. Vérifiez la connexion et réessayez.'); load() }
+    // a reel's story repost always follows it, the next day
+    if (patch.day) for (const story of entries.filter(e => e.parent_id === id)) await updateEntry(story.id, { day: nextDay(patch.day) })
   }
 
   async function addEntry(day, videoId) {
@@ -162,14 +173,16 @@ export default function DiffusionPage() {
     const { data, error } = await supabase.from('broadcast_schedule')
       .insert([{ day, format: 'short', networks: FORMATS.short.networks, post_time: FORMATS.short.time, video_ids: v ? [v.id] : [], caption: v ? defaultCaption(v) : '' }]).select().single()
     if (error) { setError('Publication non ajoutée. Réessayez.'); return }
-    setEntries(es => [...es, data])
+    const story = await supabase.from('broadcast_schedule')
+      .insert([{ day: nextDay(day), format: 'story', networks: FORMATS.story.networks, post_time: FORMATS.story.time, video_ids: data.video_ids, parent_id: data.id }]).select().single()
+    setEntries(es => [...es, data, ...(story.data ? [story.data] : [])])
     if (!v) setEditingId(data.id)
   }
 
   async function deleteEntry(e) {
     if (!confirm(`Supprimer la publication « ${entryName(e)} » du ${longDay(e.day)} ?`)) return
     setEditingId(null)
-    setEntries(es => es.filter(x => x.id !== e.id))
+    setEntries(es => es.filter(x => x.id !== e.id && x.parent_id !== e.id))
     const { error } = await supabase.from('broadcast_schedule').delete().eq('id', e.id)
     if (error) { setError('Suppression impossible.'); load() }
   }
@@ -179,7 +192,7 @@ export default function DiffusionPage() {
     setDropDay(null)
     if (payload.videoId) return addEntry(day, payload.videoId)
     const moving = entries.find(e => e.id === payload.entryId)
-    if (!moving || moving.day === day || locked(moving)) return
+    if (!moving || moving.day === day || locked(moving) || moving.format === 'story') return
     const other = entries.find(e => e.day === day && e.id !== moving.id && e.format === moving.format)
     if (other && locked(other)) { setError('Ce jour contient une publication déjà envoyée à Metricool : échange impossible.'); return }
     await updateEntry(moving.id, { day })
@@ -230,12 +243,12 @@ export default function DiffusionPage() {
   })
 
   const Chip = ({ e }) => (
-    <button {...(locked(e) ? {} : dragProps({ entryId: e.id }))} onClick={() => setEditingId(e.id)}
+    <button {...(locked(e) || e.format === 'story' ? {} : dragProps({ entryId: e.id }))} onClick={() => setEditingId(e.id)}
       title={`${e.post_time} · ${entryName(e)} · ${FORMATS[e.format].label}${e.final_url ? '' : ' · reste à faire'}`}
-      className={`w-full text-left text-xs rounded-md border-l-4 px-1.5 py-1 flex items-center gap-1 ${FORMATS[e.format].chip} ${e.final_url ? '' : 'border-dashed opacity-80'} ${locked(e) ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing'}`}>
-      <span className="line-clamp-2 break-words flex-1 leading-tight"><span className="opacity-60 tabular-nums mr-1">{e.post_time}</span><span className={`font-medium ${e.final_url ? '' : 'italic'}`}>{entryName(e)}</span>{e.format === 'short' && byId[e.video_ids[0]] && workStatus(byId[e.video_ids[0]]) && <span className="ml-1 text-[10px] uppercase tracking-wide text-gray-500">{workStatus(byId[e.video_ids[0]])}</span>}</span>
+      className={`w-full text-left text-xs rounded-md border-l-4 px-1.5 py-1 flex items-center gap-1 ${FORMATS[e.format].chip} ${todo(e) ? 'border-dashed opacity-80' : ''} ${locked(e) || e.format === 'story' ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing'}`}>
+      <span className="line-clamp-2 break-words flex-1 leading-tight"><span className="opacity-60 tabular-nums mr-1">{e.post_time}</span><span className={`font-medium ${todo(e) ? 'italic' : ''}`}>{entryName(e)}</span>{e.format === 'short' && byId[e.video_ids[0]] && workStatus(byId[e.video_ids[0]]) && <span className="ml-1 text-[10px] uppercase tracking-wide text-gray-500">{workStatus(byId[e.video_ids[0]])}</span>}</span>
       {locked(e) ? <span className="shrink-0 text-green-700" aria-label="Envoyé à Metricool">✓</span>
-        : e.final_url ? <span className="shrink-0 w-1.5 h-1.5 rounded-full bg-green-500" aria-label="Fichier final prêt" /> : null}
+        : !todo(e) ? <span className="shrink-0 w-1.5 h-1.5 rounded-full bg-green-500" aria-label="Fichier final prêt" /> : null}
     </button>
   )
 
@@ -324,7 +337,7 @@ export default function DiffusionPage() {
           {error && <p className="mb-4 text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
           {loading && <p className="text-gray-500">Chargement…</p>}
 
-          <p className="hidden md:block text-xs text-gray-500 mb-2">Une publication par jour, en alternance : short lundi, mercredi, jeudi et samedi ; compil mardi et vendredi ; épisode le dimanche. Glissez une publication sur un autre jour pour la déplacer ; si ce jour a déjà le même format, les deux s'échangent. Cliquez pour modifier ou déposer le fichier final.</p>
+          <p className="hidden md:block text-xs text-gray-500 mb-2">Novembre : un réel par jour à 18 h 30, repris en story Instagram le lendemain à midi. À partir de décembre (à confirmer au bilan) : réel lundi, mercredi, jeudi et samedi, compil mardi et vendredi, épisode le dimanche. Les stories suivent leur réel. Glissez une publication sur un autre jour pour la déplacer ; si ce jour a déjà le même format, les deux s'échangent. Cliquez pour modifier ou déposer le fichier final.</p>
 
           {/* Month grid (tablet and up) */}
           <div className="hidden md:block bg-white rounded-xl shadow-sm overflow-hidden">
@@ -375,7 +388,7 @@ export default function DiffusionPage() {
       </div>
 
       {editing && (
-        <Editor entry={editing} locked={locked(editing)} pickable={pickable} byId={byId} uploading={uploading === editing.id}
+        <Editor entry={editing} parent={parentOf(editing)} locked={locked(editing)} pickable={pickable} byId={byId} uploading={uploading === editing.id}
           name={entryName(editing)} onClose={() => setEditingId(null)} onChange={patch => updateEntry(editing.id, patch)}
           onUpload={file => uploadFinal(editing, file)} onDelete={() => deleteEntry(editing)} />
       )}
@@ -383,11 +396,13 @@ export default function DiffusionPage() {
   )
 }
 
-function Editor({ entry, locked, pickable, byId, uploading, name, onClose, onChange, onUpload, onDelete }) {
+function Editor({ entry, parent, locked, pickable, byId, uploading, name, onClose, onChange, onUpload, onDelete }) {
   const fileInput = useRef(null)
   const format = FORMATS[entry.format]
   const slotCount = format.slots || entry.video_ids.length + 1
-  const preview = entry.final_url || byId[entry.video_ids[0]]?.file_url
+  const isStory = entry.format === 'story'
+  const finalUrl = isStory ? parent?.final_url : entry.final_url
+  const preview = finalUrl || byId[entry.video_ids[0]]?.file_url
 
   useEffect(() => {
     const onKey = ev => ev.key === 'Escape' && onClose()
@@ -433,29 +448,32 @@ function Editor({ entry, locked, pickable, byId, uploading, name, onClose, onCha
           <section>
             <p className="text-sm font-semibold text-gray-900 mb-2">Fichier à publier</p>
             {preview && <video key={preview} src={preview} controls preload="metadata" playsInline className="w-full max-h-72 bg-black rounded-lg mb-2" />}
-            {entry.final_url
+            {isStory && <p className="text-xs text-gray-600 mb-1">Même fichier que le réel du {parent ? longDay(parent.day) : '?'} : il se dépose sur le réel.</p>}
+            {isStory ? (!finalUrl && <p className="text-xs text-orange-700">Reste à faire : le réel n'a pas encore de fichier final.</p>)
+              : entry.final_url
               ? <p className="text-xs text-gray-600 break-all">Final : {entry.final_name}{entry.final_uploaded_by ? ` · déposé par ${entry.final_uploaded_by}` : ''}{entry.final_uploaded_at ? ` le ${new Date(entry.final_uploaded_at).toLocaleDateString('fr-FR')}` : ''}</p>
               : <p className="text-xs text-orange-700">Reste à faire : pas encore de fichier final (mixé, habillé). {preview ? 'Aperçu : version de travail du site.' : ''}</p>}
-            <input ref={fileInput} type="file" accept="video/*" className="hidden" onChange={ev => { onUpload(ev.target.files[0]); ev.target.value = '' }} />
-            <button onClick={() => fileInput.current.click()} disabled={locked || uploading}
+            {!isStory && <input ref={fileInput} type="file" accept="video/*" className="hidden" onChange={ev => { onUpload(ev.target.files[0]); ev.target.value = '' }} />}
+            {!isStory && <button onClick={() => fileInput.current.click()} disabled={locked || uploading}
               className="mt-2 bg-gray-900 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-40">
               {uploading ? 'Envoi en cours…' : entry.final_url ? 'Remplacer le fichier final' : 'Déposer le fichier final'}
-            </button>
+            </button>}
           </section>
 
           <section className="grid grid-cols-2 gap-3">
             <label className="text-sm font-semibold text-gray-900">Date
-              <input type="date" value={entry.day} disabled={locked} onChange={ev => ev.target.value && onChange({ day: ev.target.value })} className={`${field} mt-1 font-normal`} />
+              <input type="date" value={entry.day} disabled={locked || isStory} onChange={ev => ev.target.value && onChange({ day: ev.target.value })} className={`${field} mt-1 font-normal`} />
             </label>
             <label className="text-sm font-semibold text-gray-900">Heure
               <input type="time" value={entry.post_time || ''} disabled={locked} onChange={ev => onChange({ post_time: ev.target.value })} className={`${field} mt-1 font-normal`} />
             </label>
           </section>
 
+          {!isStory && <>
           <section>
             <p className="text-sm font-semibold text-gray-900 mb-2">Format</p>
             <div className="flex flex-wrap gap-2">
-              {Object.entries(FORMATS).map(([id, f]) => (
+              {Object.entries(FORMATS).filter(([id]) => id !== 'story').map(([id, f]) => (
                 <button key={id} onClick={() => setFormat(id)} disabled={locked}
                   className={`flex items-center gap-2 border rounded-lg px-3 py-1.5 text-sm ${entry.format === id ? 'border-gray-900 font-semibold' : 'text-gray-600'}`}>
                   <span className={`w-2.5 h-2.5 rounded-sm ${f.dot}`} />{f.label}
@@ -500,6 +518,7 @@ function Editor({ entry, locked, pickable, byId, uploading, name, onClose, onCha
               <BlurInput multiline value={entry.caption || ''} disabled={locked} onSave={caption => onChange({ caption })} className={`${field} mt-1 font-normal`} />
             </label>
           </section>
+          </>}
 
           {!locked && <button onClick={onDelete} className="text-sm text-red-600 hover:text-red-800">Supprimer cette publication</button>}
         </div>
