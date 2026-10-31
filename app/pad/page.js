@@ -158,8 +158,8 @@ export default function PadPage() {
                 {open && (
                   <div className="mt-3 grid md:grid-cols-[1fr_260px] gap-4">
                     {v.file_url
-                      ? <video src={v.file_url} controls autoPlay playsInline preload="metadata" className="w-full bg-black rounded-lg aspect-video" />
-                      : <div className="w-full bg-gray-100 rounded-lg aspect-video flex items-center justify-center text-sm text-gray-500">Fichier pas encore envoyé</div>}
+                      ? <video src={v.file_url} controls autoPlay playsInline preload="metadata" className="w-full bg-black rounded-lg aspect-[4/3]" />
+                      : <div className="w-full bg-gray-100 rounded-lg aspect-[4/3] flex items-center justify-center text-sm text-gray-500">Fichier pas encore envoyé</div>}
                     <div className="space-y-3">
                       <label className="block text-sm font-semibold text-gray-900">Modif à faire / note
                         <NoteInput value={v.note || ''} onSave={note => update(v.id, { note })} />

@@ -456,7 +456,7 @@ function Editor({ entry, parent, locked, pickable, byId, uploading, name, onClos
             {isStory ? (!finalUrl && <p className="text-xs text-orange-700">Reste à faire : le réel n'a pas encore de fichier final.</p>)
               : entry.final_url
               ? <p className="text-xs text-gray-600 break-all">Final : {entry.final_name}{entry.final_uploaded_by ? ` · déposé par ${entry.final_uploaded_by}` : ''}{entry.final_uploaded_at ? ` le ${new Date(entry.final_uploaded_at).toLocaleDateString('fr-FR')}` : ''}</p>
-              : <p className="text-xs text-orange-700">Reste à faire : pas encore de fichier final 9:16. {preview ? 'Aperçu : épisode PAD 16:9 (à télécharger sur la page PAD).' : ''}</p>}
+              : <p className="text-xs text-orange-700">Reste à faire : pas encore de fichier final 9:16. {preview ? 'Aperçu : épisode PAD 4:3 (à télécharger sur la page PAD).' : ''}</p>}
             {!isStory && <input ref={fileInput} type="file" accept="video/*" className="hidden" onChange={ev => { onUpload(ev.target.files[0]); ev.target.value = '' }} />}
             {!isStory && <button onClick={() => fileInput.current.click()} disabled={locked || uploading}
               className="mt-2 bg-gray-900 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-40">

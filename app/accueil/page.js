@@ -105,9 +105,9 @@ export default function Accueil() {
       </section>
 
       {latest && (
-        <section className="max-w-4xl mx-auto px-4 pb-14">
+        <section className="max-w-3xl mx-auto px-4 pb-14">
           <h2 className="text-2xl md:text-3xl font-extrabold mb-4" style={{ color: C.neon }}>Le dernier épisode</h2>
-          <video key={latest.file_url} src={latest.file_url} poster={latest.thumb_url || undefined} controls playsInline preload="metadata" className="w-full aspect-video bg-black rounded-sm" />
+          <video key={latest.file_url} src={latest.file_url} poster={latest.thumb_url || undefined} controls playsInline preload="metadata" className="w-full aspect-[4/3] bg-black rounded-sm" />
           <p className="mt-2 text-lg font-semibold">{latest.title}{latest.day ? <span style={{ color: C.amber }} className="font-normal"> , diffusé le {longDate(latest.day)}</span> : ''}</p>
         </section>
       )}
@@ -122,7 +122,7 @@ export default function Accueil() {
             {tiles.map(v => (
               <li key={v.id + (v.day || '')}>
                 <button onClick={() => setPlaying(v)} className="group block w-full text-left focus:outline-none focus-visible:ring-2" style={{ '--tw-ring-color': C.neon }}>
-                  <span className="block aspect-video overflow-hidden bg-black">
+                  <span className="block aspect-[4/3] overflow-hidden bg-black">
                     {v.thumb_url
                       ? <img src={v.thumb_url} alt="" loading="lazy" className="w-full h-full object-cover opacity-90 group-hover:opacity-100" />
                       : <video src={`${v.file_url}#t=3`} preload="metadata" muted playsInline className="w-full h-full object-cover" />}
@@ -156,8 +156,8 @@ export default function Accueil() {
 
       {playing && (
         <div role="dialog" aria-modal="true" aria-label={playing.title} className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4" onClick={() => setPlaying(null)}>
-          <div className="w-full max-w-4xl" onClick={e => e.stopPropagation()}>
-            <video src={playing.file_url} controls autoPlay playsInline className="w-full aspect-video bg-black" />
+          <div className="w-full max-w-4xl" style={{ maxWidth: 'min(56rem, 106vh)' }} onClick={e => e.stopPropagation()}>
+            <video src={playing.file_url} controls autoPlay playsInline className="w-full aspect-[4/3] bg-black" />
             <div className="flex items-center justify-between mt-2">
               <p className="text-lg font-semibold">{playing.title}</p>
               <button onClick={() => setPlaying(null)} className="underline">Fermer</button>
