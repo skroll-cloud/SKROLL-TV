@@ -69,7 +69,10 @@ export default function Accueil() {
   const now = new Date()
   const aired = shorts.filter(e => broadcastDone(e, now) && byId[e.pad_ids[0]]).map(e => ({ ...byId[e.pad_ids[0]], day: e.day })).reverse()
   const next = shorts.find(e => !broadcastDone(e, now))
-  const tiles = preview ? videos.filter(v => v.file_url).map(v => ({ ...v, day: null })) : aired
+  // preview: 9 episodes, dated as if aired from 1 November, to see the mosaic after a week and a bit
+  const tiles = preview
+    ? videos.filter(v => v.file_url).slice(0, 9).map((v, i) => ({ ...v, day: `2026-11-${String(i + 1).padStart(2, '0')}` })).reverse()
+    : aired
   const latest = tiles[0]
 
   const Text = ({ k, as: Tag = 'p', className = '', rows = 4 }) => editing
@@ -82,7 +85,7 @@ export default function Accueil() {
       <div className="sticky top-0 z-40 flex flex-wrap items-center gap-3 px-4 py-2 text-sm" style={{ background: C.neon, color: C.film }}>
         <span className="font-semibold flex-1 min-w-[200px]">Aperçu privé : cette page n'est visible que par l'équipe.</span>
         <button onClick={() => setPreview(p => !p)} className="rounded-full border-2 px-3 py-0.5 font-semibold" style={{ borderColor: C.film }}>
-          {preview ? 'Voir seulement les épisodes diffusés' : 'Remplir la mosaïque avec tous les épisodes'}
+          {preview ? 'Voir seulement les épisodes diffusés' : 'Aperçu avec 9 épisodes diffusés'}
         </button>
         <button onClick={() => setEditing(e => !e)} className="rounded-full px-3 py-0.5 font-semibold" style={{ background: C.film, color: C.tube }}>
           {editing ? 'Terminer la modification' : 'Modifier les textes'}
@@ -103,7 +106,7 @@ export default function Accueil() {
 
       {latest && (
         <section className="max-w-4xl mx-auto px-4 pb-14">
-          <h2 className="text-2xl md:text-3xl font-extrabold mb-4" style={{ color: C.neon }}>{preview ? 'Un épisode' : 'Le dernier épisode'}</h2>
+          <h2 className="text-2xl md:text-3xl font-extrabold mb-4" style={{ color: C.neon }}>Le dernier épisode</h2>
           <video key={latest.file_url} src={latest.file_url} poster={latest.thumb_url || undefined} controls playsInline preload="metadata" className="w-full aspect-video bg-black rounded-sm" />
           <p className="mt-2 text-lg font-semibold">{latest.title}{latest.day ? <span style={{ color: C.amber }} className="font-normal"> , diffusé le {longDate(latest.day)}</span> : ''}</p>
         </section>
@@ -114,7 +117,7 @@ export default function Accueil() {
         <div aria-hidden className="absolute inset-y-0 right-0 w-5 md:w-8" style={{ backgroundImage: `radial-gradient(ellipse 35% 22% at 50% 50%, ${C.film} 98%, transparent 100%)`, backgroundSize: '100% 28px', backgroundColor: '#000' }} />
         <div className="px-7 md:px-12">
           <h2 className="text-2xl md:text-3xl font-extrabold mb-1" style={{ color: C.tube }}>Tous les épisodes</h2>
-          <p className="mb-5 text-sm" style={{ color: C.amber }}>{preview ? `${tiles.length} épisodes (aperçu)` : tiles.length ? `Un de plus chaque soir. ${tiles.length} déjà diffusé${tiles.length > 1 ? 's' : ''}.` : 'La mosaïque se remplit à chaque diffusion, à partir du premier épisode.'}</p>
+          <p className="mb-5 text-sm" style={{ color: C.amber }}>{tiles.length ? `Un de plus chaque soir. ${tiles.length} déjà diffusé${tiles.length > 1 ? 's' : ''}.` : 'La mosaïque se remplit à chaque diffusion, à partir du premier épisode.'}</p>
           <ul className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-1.5">
             {tiles.map(v => (
               <li key={v.id + (v.day || '')}>
