@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Atelier SKROLL</title>
+<style>
+  :root {
+    --bg: #f6f5f2; --panel: #ffffff; --ink: #1c1b19; --muted: #6f6b64; --line: #e4e1da;
+    --accent: #3a5bd9; --pad: #1f8a4c; --pad-bg: #e3f4ea; --warn: #b8610b; --warn-bg: #fdf0e1;
+    --del: #c0392b; --del-bg: #fbe7e5; --cours: #a07a00; --cours-bg: #fbf3d6; --draft-bg: #eceae5;
+    --focus: #3a5bd933;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #151514; --panel: #1f1f1d; --ink: #ecebe7; --muted: #9c988f; --line: #33322f;
+      --accent: #8aa2ff; --pad: #5fcf8d; --pad-bg: #1d3326; --warn: #f0a55a; --warn-bg: #3a2a18;
+      --del: #ff8a7d; --del-bg: #3a1f1c; --cours: #e8c65a; --cours-bg: #352d14; --draft-bg: #2a2927;
+      --focus: #8aa2ff33;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  header { position: sticky; top: 0; z-index: 5; background: var(--bg); border-bottom: 1px solid var(--line); padding: 14px 20px 0; }
+  .top { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  h1 { font-size: 18px; margin: 0; letter-spacing: .02em; }
+  .root { color: var(--muted); font-size: 12px; }
+  .tools { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 12px 0; }
+  input, select, button { font: inherit; color: inherit; }
+  input[type=text], input[type=search], input[type=number], select, textarea {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; min-width: 0;
+  }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--focus); }
+  #search { width: 260px; }
+  button { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px; cursor: pointer; }
+  button:hover { border-color: var(--muted); }
+  .chip { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); cursor: pointer; user-select: none; }
+  .tabs { display: flex; gap: 2px; overflow-x: auto; }
+  .tab { border: none; border-bottom: 2px solid transparent; border-radius: 0; background: none; padding: 8px 14px; color: var(--muted); white-space: nowrap; }
+  .tab.on { color: var(--ink); border-bottom-color: var(--ink); font-weight: 600; }
+  .tab .n { font-size: 12px; margin-left: 4px; opacity: .7; }
+  main { padding: 16px 20px 80px; }
+  .empty { color: var(--muted); padding: 40px; text-align: center; }
+
+  .row { display: grid; grid-template-columns: 76px minmax(0, 1fr) minmax(0, 0.9fr); gap: 16px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin-bottom: 10px; }
+  .row.final { opacity: .72; }
+  .thumb { width: 76px; height: 124px; background: #000; border-radius: 6px; overflow: hidden; cursor: pointer; position: relative; }
+  .thumb video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .thumb::after { content: "▶"; position: absolute; inset: 0; display: grid; place-items: center; color: #fff; font-size: 20px; opacity: 0; transition: opacity .15s; background: #0006; }
+  .thumb:hover::after { opacity: 1; }
+
+  .edit { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  .fname { font: 12px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); word-break: break-all; }
+  .fields { display: grid; grid-template-columns: 64px 150px minmax(0, 1fr); gap: 8px; align-items: end; }
+  .fields.nopad { grid-template-columns: 150px minmax(0, 1fr); }
+  label.f { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; min-width: 0; }
+  label.f input { text-transform: none; letter-spacing: 0; font-size: 14px; color: var(--ink); width: 100%; }
+  .missing { background: var(--warn-bg) !important; border-color: var(--warn) !important; }
+  .line2 { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  .status { border-radius: 999px; padding: 3px 10px; font-weight: 600; font-size: 13px; }
+  .status[data-f="PAD"] { background: var(--pad-bg); color: var(--pad); border-color: transparent; }
+  .status[data-f="En cours"] { background: var(--cours-bg); color: var(--cours); border-color: transparent; }
+  .status[data-f="À supprimer"] { background: var(--del-bg); color: var(--del); border-color: transparent; }
+  .status[data-f="Brouillon"] { background: var(--draft-bg); border-color: transparent; }
+  .checks { display: flex; gap: 12px; }
+  .checks label { display: inline-flex; gap: 4px; align-items: center; font-size: 13px; cursor: pointer; }
+  .quick { display: flex; gap: 6px; margin-left: auto; }
+  .quick button { font-size: 12px; padding: 3px 8px; }
+  textarea.note { width: 100%; min-height: 32px; resize: vertical; font-size: 13px; }
+
+  .comments { border-left: 1px solid var(--line); padding-left: 16px; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+  .comments h3 { margin: 0; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 600; }
+  .c { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 6px; font-size: 13px; }
+  .c input { margin: 2px 0 0; cursor: pointer; }
+  .c .meta { color: var(--muted); font-size: 11px; }
+  .c .who { font-weight: 600; color: var(--ink); }
+  .c .to { color: var(--accent); }
+  .c.done .txt { text-decoration: line-through; color: var(--muted); }
+  .c .txt { white-space: pre-wrap; word-break: break-word; }
+  .nocom { color: var(--muted); font-size: 13px; font-style: italic; }
+  .more { background: none; border: none; padding: 0; color: var(--accent); font-size: 12px; text-align: left; }
+
+  #player { position: fixed; inset: 0; background: #000c; z-index: 20; display: none; align-items: center; justify-content: center; gap: 16px; padding: 20px; }
+  #player.on { display: flex; }
+  #player video { max-height: 92vh; max-width: 60vw; border-radius: 8px; background: #000; }
+  #player .side { width: min(380px, 35vw); max-height: 92vh; overflow: auto; background: var(--panel); border-radius: 10px; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+  #player .nav { display: flex; gap: 6px; }
+  #player .fields { grid-template-columns: 64px minmax(0, 1fr); }
+  #player .fields.nopad { grid-template-columns: minmax(0, 1fr); }
+  #player .fields label:last-child { grid-column: 1 / -1; }
+  #toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 8px 14px; border-radius: 8px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 30; max-width: 90vw; }
+  #toast.on { opacity: 1; }
+  #toast.err { background: var(--del); color: #fff; }
+
+  @media (max-width: 900px) {
+    .row { grid-template-columns: 76px minmax(0, 1fr); }
+    .comments { grid-column: 1 / -1; border-left: none; border-top: 1px solid var(--line); padding: 10px 0 0; }
+    #search { width: 100%; }
+    #player { flex-direction: column; }
+    #player video { max-width: 100%; max-height: 55vh; }
+    #player .side { width: 100%; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="top"><h1>Atelier SKROLL</h1><span class="root" id="root"></span></div>
+  <div class="tools">
+    <input type="search" id="search" placeholder="Chercher un titre, un n° d'archive, un commentaire…">
+    <label class="chip"><input type="checkbox" id="fNoArchive"> Sans n° d'archive</label>
+    <label class="chip"><input type="checkbox" id="fOpen"> Commentaires ouverts</label>
+    <label class="chip"><input type="checkbox" id="fTodo"> Pas finalisées</label>
+    <button id="renumber" hidden title="Refait #01, #02… sans trous, dans l'ordre actuel">Renuméroter les PAD</button>
+    <button id="reload">Recharger</button>
+  </div>
+  <nav class="tabs" id="tabs"></nav>
+</header>
+<main id="list"></main>
+
+<div id="player">
+  <video id="pv" controls playsinline></video>
+  <div class="side" id="pside"></div>
+</div>
+<div id="toast"></div>
+
+<script>
+const $ = (s, el = document) => el.querySelector(s)
+const STATE = { videos: [], folders: [], tab: 'PAD', open: null, showResolved: new Set() }
+try { STATE.tab = localStorage.getItem('atelier_tab') || 'PAD' } catch {}
+
+const api = async (url, data) => {
+  const res = await fetch(url, data === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Atelier': '1' }, body: JSON.stringify(data) })
+  const out = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(out.error || `Erreur ${res.status}`)
+  return out
+}
+function toast(msg, err) {
+  const t = $('#toast'); t.textContent = msg; t.className = 'on' + (err ? ' err' : '')
+  clearTimeout(toast.t); toast.t = setTimeout(() => t.className = '', err ? 5000 : 1800)
+}
+const el = (tag, attrs = {}, ...kids) => {
+  const e = document.createElement(tag)
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === 'class') e.className = v
+    else if (k.startsWith('on')) e.addEventListener(k.slice(2), v)
+    else if (v === true) e.setAttribute(k, '')
+    else if (v !== false && v != null) e.setAttribute(k, v)
+  }
+  for (const k of kids.flat()) if (k != null) e.append(k)
+  return e
+}
+const relOf = v => v.folder + '/' + v.file
+const pad2 = n => String(n).padStart(2, '0')
+const fmtDate = d => new Date(d).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })
+
+async function load() {
+  const data = await api('/api/videos')
+  STATE.videos = data.videos; STATE.folders = data.folders
+  $('#root').textContent = data.root
+  if (data.commentsError) toast('Commentaires du site indisponibles : ' + data.commentsError, true)
+  render()
+}
+
+function visible() {
+  const q = $('#search').value.trim().toLowerCase()
+  return STATE.videos.filter(v => {
+    if (STATE.tab !== 'Tout' && v.folder !== STATE.tab) return false
+    if ($('#fNoArchive').checked && v.archives.length) return false
+    if ($('#fOpen').checked && !v.comments.some(c => !c.resolved)) return false
+    if ($('#fTodo').checked && v.notes.final) return false
+    if (q) {
+      const hay = [v.file, v.notes.note || '', ...v.comments.map(c => c.text)].join(' ').toLowerCase()
+      if (!hay.includes(q)) return false
+    }
+    return true
+  }).sort((a, b) => (a.folder === 'PAD' && b.folder === 'PAD' ? (a.pad ?? 1e9) - (b.pad ?? 1e9) : 0) || a.file.localeCompare(b.file, 'fr'))
+}
+
+function render() {
+  const tabs = $('#tabs'); tabs.replaceChildren()
+  for (const f of [...STATE.folders, 'Tout']) {
+    const n = f === 'Tout' ? STATE.videos.length : STATE.videos.filter(v => v.folder === f).length
+    tabs.append(el('button', { class: 'tab' + (STATE.tab === f ? ' on' : ''), onclick: () => { STATE.tab = f; try { localStorage.setItem('atelier_tab', f) } catch {}; render(); scrollTo(0, 0) } }, f, el('span', { class: 'n' }, String(n))))
+  }
+  $('#renumber').hidden = STATE.tab !== 'PAD'
+  const list = $('#list'), y = scrollY
+  const items = visible()
+  list.replaceChildren(...(items.length ? items.map(row) : [el('div', { class: 'empty' }, 'Aucune vidéo ici.')]))
+  scrollTo(0, y)
+  lazyThumbs()
+}
+
+// Champs d'édition partagés entre la liste et le lecteur
+function editor(v) {
+  const save = async (changes) => {
+    try {
+      const { rel } = await api('/api/update', { rel: relOf(v), ...changes })
+      await load()
+      if (STATE.open) { STATE.open = rel; openPlayer(rel, true) }
+      toast('Renommé : ' + rel.split('/').pop())
+    } catch (e) { toast(e.message, true); render() }
+  }
+  const onEnter = e => { if (e.key === 'Enter') e.target.blur() }
+  const archive = el('input', { type: 'text', value: v.archives.join(' '), placeholder: '0000', class: v.archives.length ? '' : 'missing', inputmode: 'numeric', onkeydown: onEnter,
+    onchange: e => save({ archives: e.target.value }) })
+  const title = el('input', { type: 'text', value: v.title.replace(/_/g, ' '), onkeydown: onEnter, onchange: e => save({ title: e.target.value }) })
+  const padIn = v.folder === 'PAD' ? el('label', { class: 'f' }, '#', el('input', { type: 'number', min: 1, value: v.pad ?? '', onkeydown: onEnter, onchange: e => save({ pad: e.target.value }) })) : null
+  const status = el('select', { class: 'status', 'data-f': v.folder, onchange: e => save({ folder: e.target.value }) },
+    STATE.folders.map(f => el('option', { value: f, selected: f === v.folder }, f)))
+  const setNote = async (patch) => { try { await api('/api/notes', { key: v.key, ...patch }); Object.assign(v.notes, patch); if ('final' in patch) render() } catch (e) { toast(e.message, true) } }
+  const check = (k, label) => el('label', {}, el('input', { type: 'checkbox', checked: !!v.notes[k], onchange: e => setNote({ [k]: e.target.checked }) }), label)
+  const quick = el('div', { class: 'quick' },
+    v.folder !== 'PAD' ? el('button', { onclick: () => save({ folder: 'PAD' }) }, '→ PAD') : null,
+    el('button', { title: 'Montrer dans le Finder', onclick: () => api('/api/reveal', { rel: relOf(v) }).catch(e => toast(e.message, true)) }, 'Finder'))
+  return el('div', { class: 'edit' },
+    el('div', { class: 'fname' }, v.file),
+    el('div', { class: 'fields' + (padIn ? '' : ' nopad') }, padIn, el('label', { class: 'f' }, 'N° archive', archive), el('label', { class: 'f' }, 'Titre', title)),
+    el('div', { class: 'line2' }, status, el('div', { class: 'checks' }, check('mixe', 'Mixé'), check('modifie', 'Modifié'), check('final', 'Final')), quick),
+    el('textarea', { class: 'note', rows: 1, placeholder: 'Note perso (reste en local)…', onchange: e => setNote({ note: e.target.value }) }, v.notes.note || ''))
+}
+
+function comments(v) {
+  const box = el('div', { class: 'comments' })
+  const open = v.comments.filter(c => !c.resolved), done = v.comments.filter(c => c.resolved)
+  box.append(el('h3', {}, `Commentaires du site${v.comments.length ? ` · ${open.length} ouvert${open.length > 1 ? 's' : ''}` : ''}`))
+  if (!v.id) { box.append(el('div', { class: 'nocom' }, 'Fichier ajouté à la main : pas lié au site.')); return box }
+  if (!v.comments.length) { box.append(el('div', { class: 'nocom' }, 'Aucun commentaire.')); return box }
+  const showAll = STATE.showResolved.has(v.key)
+  for (const c of showAll ? v.comments : open) {
+    box.append(el('div', { class: 'c' + (c.resolved ? ' done' : '') },
+      el('input', { type: 'checkbox', checked: !!c.resolved, title: 'Résolu (enregistré sur le site)', onchange: async e => {
+        try { await api('/api/comment-resolved', { id: c.id, resolved: e.target.checked }); c.resolved = e.target.checked; render() }
+        catch (err) { toast(err.message, true); e.target.checked = !e.target.checked }
+      } }),
+      el('div', {},
+        el('div', { class: 'meta' }, el('span', { class: 'who' }, c.user_id || '?'), ' · ' + fmtDate(c.created_at), c.assignee ? el('span', { class: 'to' }, ' → ' + c.assignee) : null),
+        el('div', { class: 'txt' }, c.text))))
+  }
+  if (done.length) box.append(el('button', { class: 'more', onclick: () => { showAll ? STATE.showResolved.delete(v.key) : STATE.showResolved.add(v.key); render() } },
+    showAll ? 'Masquer les résolus' : `+ ${done.length} résolu${done.length > 1 ? 's' : ''}`))
+  return box
+}
+
+function row(v) {
+  const thumb = el('div', { class: 'thumb', onclick: () => openPlayer(relOf(v)) }, el('video', { muted: true, preload: 'none', 'data-src': '/media/' + encodeURIComponent(relOf(v)) + '#t=0.5' }))
+  return el('div', { class: 'row' + (v.notes.final ? ' final' : '') }, thumb, editor(v), comments(v))
+}
+
+// Vignettes chargées seulement quand elles apparaissent à l'écran
+const io = new IntersectionObserver(entries => entries.forEach(en => {
+  if (!en.isIntersecting) return
+  const vid = en.target; vid.preload = 'metadata'; vid.src = vid.dataset.src; io.unobserve(vid)
+}), { rootMargin: '400px' })
+function lazyThumbs() { document.querySelectorAll('.thumb video[data-src]').forEach(v => io.observe(v)) }
+
+// Lecteur plein écran avec les mêmes champs, navigation ← →
+function openPlayer(rel, keepTime) {
+  const v = STATE.videos.find(x => relOf(x) === rel)
+  if (!v) return closePlayer()
+  STATE.open = rel
+  const pv = $('#pv'), src = '/media/' + encodeURIComponent(rel)
+  if (!pv.src.endsWith(src)) { const t = keepTime ? pv.currentTime : 0; pv.src = src; if (t) pv.currentTime = t; if (!keepTime) pv.play().catch(() => {}) }
+  const list = visible(), i = list.findIndex(x => relOf(x) === rel)
+  const go = d => { const n = list[i + d]; if (n) openPlayer(relOf(n)) }
+  $('#pside').replaceChildren(
+    el('div', { class: 'nav' },
+      el('button', { onclick: () => go(-1), disabled: i <= 0 }, '← Préc.'),
+      el('button', { onclick: () => go(1), disabled: i < 0 || i >= list.length - 1 }, 'Suiv. →'),
+      el('span', { style: 'margin:auto 0 auto 8px;color:var(--muted);font-size:12px' }, i >= 0 ? `${i + 1} / ${list.length}` : ''),
+      el('button', { style: 'margin-left:auto', onclick: closePlayer }, 'Fermer ✕')),
+    editor(v), comments(v))
+  $('#player').classList.add('on')
+  openPlayer.go = go
+}
+function closePlayer() { STATE.open = null; const pv = $('#pv'); pv.pause(); pv.removeAttribute('src'); pv.load(); $('#player').classList.remove('on'); render() }
+$('#player').addEventListener('click', e => { if (e.target.id === 'player') closePlayer() })
+document.addEventListener('keydown', e => {
+  if (!STATE.open || /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) return
+  if (e.key === 'Escape') closePlayer()
+  if (e.key === 'ArrowRight') openPlayer.go?.(1)
+  if (e.key === 'ArrowLeft') openPlayer.go?.(-1)
+})
+
+for (const id of ['search', 'fNoArchive', 'fOpen', 'fTodo']) $('#' + id).addEventListener('input', render)
+$('#reload').onclick = () => load().then(() => toast('Rechargé'))
+$('#renumber').onclick = async () => {
+  if (!confirm('Renuméroter tous les PAD en #01, #02… sans trous, dans l’ordre actuel ?')) return
+  try { const { renamed } = await api('/api/renumber', {}); await load(); toast(`${renamed} fichier(s) renommé(s)`) } catch (e) { toast(e.message, true) }
+}
+load().catch(e => toast(e.message, true))
+</script>
+</body>
+</html>

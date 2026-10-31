@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "sync-videos": "node scripts/sync-videos.mjs",
+    "atelier": "node scripts/atelier.mjs"
   },
   "keywords": [],
   "author": "",

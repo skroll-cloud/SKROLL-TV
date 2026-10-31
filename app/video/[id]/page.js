@@ -3,6 +3,7 @@
 import { useState, useEffect, use } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@supabase/supabase-js'
+import { displayTitle, safeFileName } from '../../../lib/videoName.mjs'
 
 const supabase = createClient(
   'https://riotdlbdywxuouvdgqpt.supabase.co',
@@ -392,7 +393,7 @@ export default function VideoPage({ params }) {
           <div className="p-4 md:p-6">
             {/* Titre + type */}
             <div className="mb-5">
-              <h1 className="text-xl font-bold text-gray-900 mb-1">{video.title}</h1>
+              <h1 className="text-xl font-bold text-gray-900 mb-1">{displayTitle(video)}</h1>
               <div className="flex flex-wrap gap-2 items-center">
                 <select value={video.type_id || ''} onChange={(e) => updateVideoType(e.target.value)} className="border rounded-lg px-3 py-1 text-sm">
                   <option value="">Sans type</option>
@@ -554,15 +555,15 @@ export default function VideoPage({ params }) {
 
             {/* Télécharger */}
             <div className="mb-4">
-              <a href={video.file_url} download={`${video.title}.mp4`} className="inline-flex items-center gap-2 text-sm text-gray-500 border border-gray-200 px-4 py-2 rounded-xl hover:border-gray-400 transition-colors">
+              <a href={video.file_url} download={`${safeFileName(displayTitle(video))}.${video.file_url.split('.').pop()}`} className="inline-flex items-center gap-2 text-sm text-gray-500 border border-gray-200 px-4 py-2 rounded-xl hover:border-gray-400 transition-colors">
                 ⬇ Télécharger la vidéo
               </a>
             </div>
 
             {/* Navigation mobile (bas de page) */}
             <div className="md:hidden flex justify-between text-sm text-gray-400 mt-2 pb-2">
-              {prevVideo ? <button onClick={() => navigateToVideo(currentIndex - 1)} className="truncate max-w-[45%]">← {prevVideo.title}</button> : <span />}
-              {nextVideo ? <button onClick={() => navigateToVideo(currentIndex + 1)} className="truncate max-w-[45%] text-right">{nextVideo.title} →</button> : <span />}
+              {prevVideo ? <button onClick={() => navigateToVideo(currentIndex - 1)} className="truncate max-w-[45%]">← {displayTitle(prevVideo)}</button> : <span />}
+              {nextVideo ? <button onClick={() => navigateToVideo(currentIndex + 1)} className="truncate max-w-[45%] text-right">{displayTitle(nextVideo)} →</button> : <span />}
             </div>
           </div>
         </div>

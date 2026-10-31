@@ -63,37 +63,27 @@ function nextDay(day) {
   return iso(y, m - 1, d + 1)
 }
 
-function isPad(v) {
-  return v.bertrand_vote === 'pad' && v.sebastien_vote === 'pad' && v.pierreemmanuel_vote === 'pad'
+// Videos come from the PAD catalogue (pad_videos): finished, mixed and dressed episodes, validated one last time on /pad.
+function isValidated(v) {
+  return v.status === 'pad'
 }
 
 function workStatus(v) {
-  if (isRejected(v)) return 'à supprimer'
-  if (isPad(v)) return null
-  return [v.bertrand_vote, v.sebastien_vote, v.pierreemmanuel_vote].some(Boolean) ? 'en cours' : 'en attente'
-}
-
-function isRejected(v) {
-  return [v.bertrand_vote, v.sebastien_vote, v.pierreemmanuel_vote].includes('non')
+  if (v.status === 'modif') return 'modif à faire'
+  return isValidated(v) ? null : 'pas PAD'
 }
 
 function videoLabel(v) {
-  return v.pad_number ? `#${String(v.pad_number).padStart(2, '0')}_${v.title}` : v.title
+  return `#${String(v.number).padStart(2, '0')} ${v.title}`
 }
 
 function shortName(v) {
-  const parts = v.title.replace(/^SKROLL_/, '').split('_')
-  while (parts.length > 1 && /^\d+$/.test(parts[0])) parts.shift()
-  return parts.join(' ').replace(/ 1$/, '')
+  return v.title.replace(/ 1$/, '')
 }
 
 function defaultCaption(v) {
-  const parts = v.title.replace(/^SKROLL_/, '').split('_')
-  const archives = []
-  while (parts.length > 1 && /^\d+$/.test(parts[0])) archives.push(parts.shift())
-  const name = parts.join(' ').replace(/ 1$/, '').replace(/^./, c => c.toUpperCase())
-  const nums = archives.filter(a => a !== '0000')
-  return `${name}\n\nArchives Cinémathèque de Bretagne${nums.length ? ` (n° ${nums.join(', ')})` : ''}. 100 % archives, 0 % IA.\n\n#skroll #bretagne #archives #humour`
+  const name = shortName(v).replace(/^./, c => c.toUpperCase())
+  return `${name}\n\nArchives Cinémathèque de Bretagne${v.archives.length ? ` (n° ${v.archives.join(', ')})` : ''}. 100 % archives, 0 % IA.\n\n#skroll #bretagne #archives #humour`
 }
 
 function readList(key, fallback) {
@@ -112,6 +102,7 @@ export default function DiffusionPage() {
   const [shownFormats, setShownFormats] = useState(Object.keys(FORMATS))
   const [editingId, setEditingId] = useState(null)
   const [dropDay, setDropDay] = useState(null)
+  const [picked, setPicked] = useState(null)  // PAD episode clicked in the side list, placed on the next day clicked
   const [uploading, setUploading] = useState(null)
   const [onlyTodo, setOnlyTodo] = useState(false)
 
@@ -132,7 +123,7 @@ export default function DiffusionPage() {
   async function load() {
     const [s, v] = await Promise.all([
       supabase.from('broadcast_schedule').select('*').order('day', { ascending: true }).order('created_at', { ascending: true }),
-      supabase.from('videos').select('id,title,file_url,pad_number,bertrand_vote,sebastien_vote,pierreemmanuel_vote')
+      supabase.from('pad_videos').select('id,number,title,archives,file_url,status').order('number')
     ])
     if (s.error || v.error) setError('Impossible de charger le planning. Rechargez la page.')
     else { setEntries(s.data); setVideos(v.data); setError('') }
@@ -140,9 +131,9 @@ export default function DiffusionPage() {
   }
 
   const byId = Object.fromEntries(videos.map(v => [v.id, v]))
-  const usedIds = new Set(entries.filter(e => e.format === 'short').flatMap(e => e.video_ids))
-  const unscheduled = videos.filter(v => !isRejected(v) && !usedIds.has(v.id)).sort((a, b) => (a.pad_number || 999) - (b.pad_number || 999) || a.title.localeCompare(b.title))
-  const pickable = videos.filter(v => !isRejected(v)).sort((a, b) => (a.pad_number || 999) - (b.pad_number || 999) || a.title.localeCompare(b.title))
+  const usedIds = new Set(entries.filter(e => e.format === 'short').flatMap(e => e.pad_ids))
+  const unscheduled = videos.filter(v => isValidated(v) && !usedIds.has(v.id))
+  const pickable = videos
   const locked = e => !!e.metricool_status
   const parentOf = e => e.parent_id && entries.find(x => x.id === e.parent_id)
   const todo = e => !(e.format === 'story' ? parentOf(e)?.final_url : e.final_url)
@@ -151,9 +142,9 @@ export default function DiffusionPage() {
 
   function entryName(e) {
     if (e.format === 'story') { const p = parentOf(e); return `Story · ${p ? entryName(p) : 'réel supprimé'}` }
-    const names = e.video_ids.map(id => byId[id]).filter(Boolean)
+    const names = e.pad_ids.map(id => byId[id]).filter(Boolean)
     if (e.format === 'short') {
-      const v = names[0] && `${names[0].pad_number ? '#' + String(names[0].pad_number).padStart(2, '0') + ' ' : ''}${shortName(names[0])}`
+      const v = names[0] && `#${String(names[0].number).padStart(2, '0')} ${shortName(names[0])}`
       if (e.title && v) return `${e.title} · ${v}`
       return e.title || v || 'Short à choisir'
     }
@@ -171,12 +162,18 @@ export default function DiffusionPage() {
   async function addEntry(day, videoId) {
     const v = byId[videoId]
     const { data, error } = await supabase.from('broadcast_schedule')
-      .insert([{ day, format: 'short', networks: FORMATS.short.networks, post_time: FORMATS.short.time, video_ids: v ? [v.id] : [], caption: v ? defaultCaption(v) : '' }]).select().single()
+      .insert([{ day, format: 'short', networks: FORMATS.short.networks, post_time: FORMATS.short.time, pad_ids: v ? [v.id] : [], caption: v ? defaultCaption(v) : '' }]).select().single()
     if (error) { setError('Publication non ajoutée. Réessayez.'); return }
     const story = await supabase.from('broadcast_schedule')
-      .insert([{ day: nextDay(day), format: 'story', networks: FORMATS.story.networks, post_time: FORMATS.story.time, video_ids: data.video_ids, parent_id: data.id }]).select().single()
+      .insert([{ day: nextDay(day), format: 'story', networks: FORMATS.story.networks, post_time: FORMATS.story.time, pad_ids: data.pad_ids, parent_id: data.id }]).select().single()
     setEntries(es => [...es, data, ...(story.data ? [story.data] : [])])
     if (!v) setEditingId(data.id)
+  }
+
+  function placePicked(day) {
+    if (!picked) return
+    addEntry(day, picked)
+    setPicked(null)
   }
 
   async function deleteEntry(e) {
@@ -228,8 +225,8 @@ export default function DiffusionPage() {
   const monthPrefix = `${month.y}-${String(month.m + 1).padStart(2, '0')}`
   const monthEntries = entries.filter(e => e.day.startsWith(monthPrefix) && visible(e))
   const readyCount = entries.filter(e => e.final_url).length
-  const emptyShorts = entries.filter(e => e.format === 'short' && !e.video_ids.length).length
-  const unfinishedShorts = entries.filter(e => e.format === 'short' && byId[e.video_ids[0]] && !isPad(byId[e.video_ids[0]])).length
+  const emptyShorts = entries.filter(e => e.format === 'short' && !e.pad_ids.length).length
+  const unfinishedShorts = entries.filter(e => e.format === 'short' && byId[e.pad_ids[0]] && !isValidated(byId[e.pad_ids[0]])).length
   const dayEntries = day => entries.filter(e => e.day === day && visible(e)).sort((a, b) => (a.post_time || '').localeCompare(b.post_time || ''))
 
   const dragProps = payload => ({
@@ -243,10 +240,10 @@ export default function DiffusionPage() {
   })
 
   const Chip = ({ e }) => (
-    <button {...(locked(e) || e.format === 'story' ? {} : dragProps({ entryId: e.id }))} onClick={() => setEditingId(e.id)}
+    <button {...(locked(e) || e.format === 'story' ? {} : dragProps({ entryId: e.id }))} onClick={ev => { ev.stopPropagation(); setEditingId(e.id) }}
       title={`${e.post_time} · ${entryName(e)} · ${FORMATS[e.format].label}${e.final_url ? '' : ' · reste à faire'}`}
       className={`w-full text-left text-xs rounded-md border-l-4 px-1.5 py-1 flex items-center gap-1 ${FORMATS[e.format].chip} ${todo(e) ? 'border-dashed opacity-80' : ''} ${locked(e) || e.format === 'story' ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing'}`}>
-      <span className="line-clamp-2 break-words flex-1 leading-tight"><span className="opacity-60 tabular-nums mr-1">{e.post_time}</span><span className={`font-medium ${todo(e) ? 'italic' : ''}`}>{entryName(e)}</span>{e.format === 'short' && byId[e.video_ids[0]] && workStatus(byId[e.video_ids[0]]) && <span className="ml-1 text-[10px] uppercase tracking-wide text-gray-500">{workStatus(byId[e.video_ids[0]])}</span>}</span>
+      <span className="line-clamp-2 break-words flex-1 leading-tight"><span className="opacity-60 tabular-nums mr-1">{e.post_time}</span><span className={`font-medium ${todo(e) ? 'italic' : ''}`}>{entryName(e)}</span>{e.format === 'short' && byId[e.pad_ids[0]] && workStatus(byId[e.pad_ids[0]]) && <span className="ml-1 text-[10px] uppercase tracking-wide text-gray-500">{workStatus(byId[e.pad_ids[0]])}</span>}</span>
       {locked(e) ? <span className="shrink-0 text-green-700" aria-label="Envoyé à Metricool">✓</span>
         : !todo(e) ? <span className="shrink-0 w-1.5 h-1.5 rounded-full bg-green-500" aria-label="Fichier final prêt" /> : null}
     </button>
@@ -264,6 +261,18 @@ export default function DiffusionPage() {
 
       <div className="lg:flex">
         <aside className="lg:w-60 lg:shrink-0 lg:min-h-[calc(100vh-57px)] bg-white lg:border-r px-4 py-4 lg:py-6 space-y-5">
+          <div>
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Épisodes PAD à programmer ({unscheduled.length})</p>
+            {unscheduled.length
+              ? <p className="text-xs text-gray-500 mb-2">Glissez un épisode sur un jour, ou cliquez dessus puis sur le jour.</p>
+              : <p className="text-xs text-gray-500 mb-2">Aucun. Passez des épisodes en PAD sur la page <a href="/pad" className="text-blue-600 hover:underline">Épisodes</a>.</p>}
+            <div className="space-y-1 max-h-[50vh] overflow-y-auto">
+              {unscheduled.map(v => (
+                <button key={v.id} {...dragProps({ videoId: v.id })} onClick={() => setPicked(picked === v.id ? null : v.id)}
+                  className={`block w-full text-left text-xs rounded px-2 py-1 truncate cursor-grab ${picked === v.id ? 'bg-blue-600 text-white' : 'bg-gray-100 hover:bg-gray-200'}`}>{videoLabel(v)}</button>
+              ))}
+            </div>
+          </div>
           <div className="flex flex-wrap gap-x-8 gap-y-4 lg:block lg:space-y-5">
             <div>
               <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Réseaux</p>
@@ -295,7 +304,7 @@ export default function DiffusionPage() {
                 const all = entries.filter(e => e.format === id)
                 return <p key={id} className="flex items-center gap-2"><span className={`w-2.5 h-2.5 rounded-sm ${f.dot}`} /><span className="flex-1">{f.label}</span><span className="tabular-nums text-gray-500">{all.filter(todo).length}/{all.length}</span></p>
               })}
-              {unfinishedShorts > 0 && <p className="text-xs text-gray-500">dont {unfinishedShorts} shorts pas encore en PAD</p>}
+              {unfinishedShorts > 0 && <p className="text-xs text-gray-500">dont {unfinishedShorts} shorts pas encore validés par les 3</p>}
               {emptyShorts > 0 && <p className="text-xs text-orange-700">dont {emptyShorts} shorts sans vidéo choisie</p>}
             </div>
             <label className="flex items-center gap-2 text-sm text-gray-800 mt-2">
@@ -308,17 +317,6 @@ export default function DiffusionPage() {
             <p><span className="inline-block w-4 border-t-2 border-dashed border-gray-400 mr-1.5 align-middle" />pointillés, italique : reste à faire (pas de fichier final)</p>
             <p><span className="text-green-700 mr-1.5">✓</span>envoyé à Metricool</p>
           </div>
-          {unscheduled.length > 0 && (
-            <div className="hidden lg:block">
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Vidéos à programmer ({unscheduled.length})</p>
-              <p className="text-xs text-gray-500 mb-2">Glissez une vidéo sur un jour.</p>
-              <div className="space-y-1 max-h-[40vh] overflow-y-auto">
-                {unscheduled.map(v => (
-                  <div key={v.id} {...dragProps({ videoId: v.id })} className="text-xs bg-gray-100 rounded px-2 py-1 truncate cursor-grab">{videoLabel(v)}</div>
-                ))}
-              </div>
-            </div>
-          )}
         </aside>
 
         <main className="flex-1 min-w-0 px-4 md:px-6 py-5">
@@ -337,7 +335,13 @@ export default function DiffusionPage() {
           {error && <p className="mb-4 text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
           {loading && <p className="text-gray-500">Chargement…</p>}
 
-          <p className="hidden md:block text-xs text-gray-500 mb-2">Novembre : un réel par jour à 18 h 30, repris en story Instagram le lendemain à midi. À partir de décembre (à confirmer au bilan) : réel lundi, mercredi, jeudi et samedi, compil mardi et vendredi, épisode le dimanche. Les stories suivent leur réel. Glissez une publication sur un autre jour pour la déplacer ; si ce jour a déjà le même format, les deux s'échangent. Cliquez pour modifier ou déposer le fichier final.</p>
+          {picked && byId[picked] && (
+            <div className="mb-3 flex items-center gap-3 text-sm bg-blue-50 text-blue-900 rounded-lg px-3 py-2">
+              <span className="flex-1">Cliquez sur un jour pour y placer <b>{videoLabel(byId[picked])}</b>.</span>
+              <button onClick={() => setPicked(null)} className="text-blue-700 hover:underline">Annuler</button>
+            </div>
+          )}
+          <p className="hidden md:block text-xs text-gray-500 mb-2">Placer un épisode PAD sur un jour crée son réel à 18 h 30 et sa story Instagram le lendemain à midi (la story suit son réel quand on le déplace). Glissez une publication sur un autre jour pour la déplacer ; si ce jour a déjà le même format, les deux s'échangent. Cliquez sur une publication pour la modifier ou déposer le fichier final 9:16.</p>
 
           {/* Month grid (tablet and up) */}
           <div className="hidden md:block bg-white rounded-xl shadow-sm overflow-hidden">
@@ -350,10 +354,10 @@ export default function DiffusionPage() {
                   const inMonth = day.startsWith(monthPrefix)
                   const list = dayEntries(day)
                   return (
-                    <div key={day} {...dropProps(day)}
-                      className={`group min-h-[112px] border-l first:border-l-0 p-1.5 flex flex-col gap-1 ${i > 4 ? 'bg-gray-50' : ''} ${dropDay === day ? 'ring-2 ring-inset ring-blue-400 bg-blue-50' : ''}`}>
+                    <div key={day} {...dropProps(day)} onClick={() => placePicked(day)}
+                      className={`group min-h-[112px] border-l first:border-l-0 p-1.5 flex flex-col gap-1 ${i > 4 ? 'bg-gray-50' : ''} ${picked ? 'cursor-pointer hover:bg-blue-50' : ''} ${dropDay === day ? 'ring-2 ring-inset ring-blue-400 bg-blue-50' : ''}`}>
                       <div className="flex items-center justify-between">
-                        <button onClick={() => addEntry(day)} aria-label={`Ajouter une publication le ${longDay(day)}`} className="text-gray-300 hover:text-blue-600 text-sm leading-none opacity-0 group-hover:opacity-100 px-1">+</button>
+                        <button onClick={ev => { ev.stopPropagation(); addEntry(day) }} aria-label={`Ajouter une publication le ${longDay(day)}`} className="text-gray-300 hover:text-blue-600 text-sm leading-none opacity-0 group-hover:opacity-100 px-1">+</button>
                         <span className={`text-sm tabular-nums ${day === today ? 'bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center font-semibold' : inMonth ? 'text-gray-800' : 'text-gray-300'}`}>
                           {Number(day.slice(8))}{day.endsWith('-01') ? ` ${MONTHS_SHORT[Number(day.slice(5, 7)) - 1]}` : ''}
                         </span>
@@ -371,14 +375,14 @@ export default function DiffusionPage() {
             {weeks.flat().filter(d => d.startsWith(monthPrefix)).map(day => {
               const list = dayEntries(day)
               return (
-                <div key={day} className="flex gap-3 px-3 py-2">
+                <div key={day} onClick={() => placePicked(day)} className={`flex gap-3 px-3 py-2 ${picked ? 'cursor-pointer' : ''}`}>
                   <div className={`w-12 shrink-0 text-center ${day === today ? 'text-red-500' : 'text-gray-800'}`}>
                     <p className="text-[11px] uppercase text-gray-400">{longDay(day).slice(0, 3)}</p>
                     <p className="text-lg font-semibold tabular-nums leading-tight">{Number(day.slice(8))}</p>
                   </div>
                   <div className="flex-1 min-w-0 space-y-1 self-center">
                     {list.map(e => <Chip key={e.id} e={e} />)}
-                    {!list.length && <button onClick={() => addEntry(day)} className="text-xs text-gray-400">+ Ajouter</button>}
+                    {!list.length && !picked && <button onClick={ev => { ev.stopPropagation(); addEntry(day) }} className="text-xs text-gray-400">+ Ajouter</button>}
                   </div>
                 </div>
               )
@@ -399,10 +403,10 @@ export default function DiffusionPage() {
 function Editor({ entry, parent, locked, pickable, byId, uploading, name, onClose, onChange, onUpload, onDelete }) {
   const fileInput = useRef(null)
   const format = FORMATS[entry.format]
-  const slotCount = format.slots || entry.video_ids.length + 1
+  const slotCount = format.slots || entry.pad_ids.length + 1
   const isStory = entry.format === 'story'
   const finalUrl = isStory ? parent?.final_url : entry.final_url
-  const preview = finalUrl || byId[entry.video_ids[0]]?.file_url
+  const preview = finalUrl || byId[entry.pad_ids[0]]?.file_url
 
   useEffect(() => {
     const onKey = ev => ev.key === 'Escape' && onClose()
@@ -412,14 +416,14 @@ function Editor({ entry, parent, locked, pickable, byId, uploading, name, onClos
 
   function setFormat(f) {
     const { slots, time, networks } = FORMATS[f]
-    onChange({ format: f, post_time: time, networks, video_ids: slots ? entry.video_ids.slice(0, slots) : entry.video_ids })
+    onChange({ format: f, post_time: time, networks, pad_ids: slots ? entry.pad_ids.slice(0, slots) : entry.pad_ids })
   }
 
   function setVideo(i, id) {
-    const ids = [...entry.video_ids]
+    const ids = [...entry.pad_ids]
     ids[i] = id
     const clean = ids.filter(Boolean)
-    const patch = { video_ids: clean }
+    const patch = { pad_ids: clean }
     if (entry.format === 'short' && id && !entry.caption) patch.caption = defaultCaption(byId[id])
     onChange(patch)
   }
@@ -452,7 +456,7 @@ function Editor({ entry, parent, locked, pickable, byId, uploading, name, onClos
             {isStory ? (!finalUrl && <p className="text-xs text-orange-700">Reste à faire : le réel n'a pas encore de fichier final.</p>)
               : entry.final_url
               ? <p className="text-xs text-gray-600 break-all">Final : {entry.final_name}{entry.final_uploaded_by ? ` · déposé par ${entry.final_uploaded_by}` : ''}{entry.final_uploaded_at ? ` le ${new Date(entry.final_uploaded_at).toLocaleDateString('fr-FR')}` : ''}</p>
-              : <p className="text-xs text-orange-700">Reste à faire : pas encore de fichier final (mixé, habillé). {preview ? 'Aperçu : version de travail du site.' : ''}</p>}
+              : <p className="text-xs text-orange-700">Reste à faire : pas encore de fichier final 9:16. {preview ? 'Aperçu : épisode PAD 16:9 (à télécharger sur la page PAD).' : ''}</p>}
             {!isStory && <input ref={fileInput} type="file" accept="video/*" className="hidden" onChange={ev => { onUpload(ev.target.files[0]); ev.target.value = '' }} />}
             {!isStory && <button onClick={() => fileInput.current.click()} disabled={locked || uploading}
               className="mt-2 bg-gray-900 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-40">
@@ -498,9 +502,9 @@ function Editor({ entry, parent, locked, pickable, byId, uploading, name, onClos
             <p className="text-sm font-semibold text-gray-900 mb-2">{entry.format === 'short' ? 'Vidéo' : 'Vidéos sources'}</p>
             <div className="space-y-2">
               {Array.from({ length: slotCount }, (_, i) => (
-                <select key={i} value={entry.video_ids[i] || ''} disabled={locked} onChange={ev => setVideo(i, ev.target.value)} className={field}>
-                  <option value="">{i < entry.video_ids.length ? 'Retirer' : entry.format === 'short' ? 'Choisir une vidéo…' : '+ Ajouter une vidéo…'}</option>
-                  {pickable.map(v => <option key={v.id} value={v.id}>{videoLabel(v)}{isPad(v) ? '' : ' (pas PAD)'}</option>)}
+                <select key={i} value={entry.pad_ids[i] || ''} disabled={locked} onChange={ev => setVideo(i, ev.target.value)} className={field}>
+                  <option value="">{i < entry.pad_ids.length ? 'Retirer' : entry.format === 'short' ? 'Choisir une vidéo…' : '+ Ajouter une vidéo…'}</option>
+                  {pickable.map(v => <option key={v.id} value={v.id}>{videoLabel(v)}{workStatus(v) ? ` (${workStatus(v)})` : ''}</option>)}
                 </select>
               ))}
             </div>

@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@supabase/supabase-js'
+import { normalizeTitle, displayTitle } from '../lib/videoName.mjs'
 
 const supabase = createClient(
   'https://riotdlbdywxuouvdgqpt.supabase.co',
@@ -58,13 +59,23 @@ function statusLabel(status) {
   return 'En attente'
 }
 
+// Menu. Since 2026-10-31 the site is in its PAD configuration: Vidéos, Commentaires, Tâches, Rétroplanning and Fichiers
+// are offline (their sections still exist below but are no longer reachable).
+const NAV_ITEMS = [
+  { id: 'pad', label: 'Épisodes' },
+  { id: 'diffusion', label: 'Planning de diffusion' },
+  { id: 'ideas', label: 'Idées' },
+  { id: 'contacts', label: 'Contacts' },
+]
+const NAV_ROUTES = ['pad', 'diffusion']
+
 export default function Home() {
   const router = useRouter()
   const [currentUser, setCurrentUser] = useState(null)
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [loginError, setLoginError] = useState('')
-  const [currentSection, setCurrentSection] = useState('videos')
+  const [currentSection, setCurrentSection] = useState('ideas')
   const [showPasswordModal, setShowPasswordModal] = useState(false)
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -146,7 +157,7 @@ export default function Home() {
     const saved = localStorage.getItem('skroll_user')
     if (saved) setCurrentUser(saved)
     const savedSection = localStorage.getItem('skroll_section')
-    if (savedSection) {
+    if (savedSection && NAV_ITEMS.some(i => i.id === savedSection)) {
       setCurrentSection(savedSection)
       localStorage.removeItem('skroll_section')
     }
@@ -375,7 +386,7 @@ export default function Home() {
         
         const { data: urlData } = supabase.storage.from('Videos').getPublicUrl(filePath)
         await supabase.from('videos').insert([{
-          title: file.name.replace(/\.[^/.]+$/, ''),
+          title: normalizeTitle(file.name.replace(/\.[^/.]+$/, '')),
           file_url: urlData.publicUrl,
           uploaded_by: currentUser,
           referent: currentUser,
@@ -620,7 +631,7 @@ export default function Home() {
         </div>
         <div className="p-4">
           <div className="flex items-start justify-between mb-1">
-            <h3 className="font-semibold text-base flex-1 pr-2">{video.title}</h3>
+            <h3 className="font-semibold text-base flex-1 pr-2">{displayTitle(video)}</h3>
             <span className="text-xs text-gray-400 shrink-0">{vs}</span>
           </div>
           <p className="text-xs text-gray-400 mb-3">Prise en charge : {video.referent || '—'}</p>
@@ -705,18 +716,9 @@ export default function Home() {
               <button onClick={() => setMobileMenuOpen(false)} className="text-gray-300 text-xl">✕</button>
             </div>
             <ul className="space-y-0.5">
-              {[
-                {id:'videos', label:'Vidéos'},
-                {id:'comments', label:`Commentaires (${allComments.length})`},
-                {id:'tasks', label:'Tâches'},
-                {id:'retroplanning', label:'Rétroplanning'},
-                {id:'diffusion', label:'Diffusion'},
-                {id:'ideas', label:'Idées'},
-                {id:'contacts', label:'Contacts'},
-                {id:'files', label:'Fichiers'},
-              ].map((item) => (
+              {NAV_ITEMS.map((item) => (
                 <li key={item.id}>
-                  <button onClick={() => { if (item.id === 'retroplanning' || item.id === 'diffusion') return router.push('/' + item.id); setCurrentSection(item.id); setMobileMenuOpen(false) }} className={`w-full text-left px-3 py-2 rounded-lg text-sm ${currentSection === item.id ? 'bg-blue-50 text-blue-600 font-medium' : 'text-gray-600'}`}>
+                  <button onClick={() => { if (NAV_ROUTES.includes(item.id)) return router.push('/' + item.id); setCurrentSection(item.id); setMobileMenuOpen(false) }} className={`w-full text-left px-3 py-2 rounded-lg text-sm ${currentSection === item.id ? 'bg-blue-50 text-blue-600 font-medium' : 'text-gray-600'}`}>
                     {item.label}
                   </button>
                 </li>
@@ -749,18 +751,9 @@ export default function Home() {
         {/* Desktop sidebar */}
         <nav className="hidden md:flex flex-col w-48 bg-white border-r fixed left-0 top-[49px] bottom-0">
           <ul className="p-3 space-y-0.5 flex-1">
-            {[
-              {id:'videos', label:'Vidéos'},
-              {id:'comments', label:`Commentaires (${allComments.length})`},
-              {id:'tasks', label:'Tâches'},
-              {id:'retroplanning', label:'Rétroplanning'},
-              {id:'diffusion', label:'Diffusion'},
-              {id:'ideas', label:'Idées'},
-              {id:'contacts', label:'Contacts'},
-              {id:'files', label:'Fichiers'},
-            ].map((item) => (
+            {NAV_ITEMS.map((item) => (
               <li key={item.id}>
-                <button onClick={() => item.id === 'retroplanning' || item.id === 'diffusion' ? router.push('/' + item.id) : setCurrentSection(item.id)} className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${currentSection === item.id ? 'bg-blue-50 text-blue-600 font-medium' : 'text-gray-500 hover:text-gray-800'}`}>
+                <button onClick={() => NAV_ROUTES.includes(item.id) ? router.push('/' + item.id) : setCurrentSection(item.id)} className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${currentSection === item.id ? 'bg-blue-50 text-blue-600 font-medium' : 'text-gray-500 hover:text-gray-800'}`}>
                   {item.label}
                 </button>
               </li>
@@ -878,7 +871,7 @@ export default function Home() {
                         </div>
                         <div className="p-3">
                           <div className="flex items-start justify-between mb-1">
-                            <h3 className="font-semibold text-sm leading-tight flex-1 pr-2 truncate">{video.title}</h3>
+                            <h3 className="font-semibold text-sm leading-tight flex-1 pr-2 truncate">{displayTitle(video)}</h3>
                             <span className="text-xs text-gray-400 shrink-0">{vs}</span>
                           </div>
                           <p className="text-xs text-gray-400 mb-2 truncate">{video.referent || 'Pas de prise en charge'}</p>
@@ -968,7 +961,7 @@ export default function Home() {
                         const myVoteRow = currentUser ? video[userToVoteColumn[currentUser]] : null
                         return (
                           <tr key={video.id} className="hover:bg-gray-50">
-                            <td className="px-4 py-3"><button onClick={() => router.push(`/video/${video.id}?from=${encodeURIComponent(statusFilter)}`)} className="text-blue-600 hover:underline">{video.title}</button></td>
+                            <td className="px-4 py-3"><button onClick={() => router.push(`/video/${video.id}?from=${encodeURIComponent(statusFilter)}`)} className="text-blue-600 hover:underline">{displayTitle(video)}</button></td>
                             <td className="px-4 py-3 text-sm">{video.video_types?.name || '-'}</td>
                             <td className="px-4 py-3 text-sm">{commentCounts[video.id] || 0}</td>
                             <td className="px-4 py-3 text-sm">
@@ -1184,7 +1177,7 @@ export default function Home() {
                   </div>
                   <div className="p-3">
                     <div className="flex items-start justify-between mb-1">
-                      <h3 className="font-semibold text-sm leading-tight flex-1 pr-2 truncate">{video.title}</h3>
+                      <h3 className="font-semibold text-sm leading-tight flex-1 pr-2 truncate">{displayTitle(video)}</h3>
                       {video.referent && <span className="text-xs text-gray-400 shrink-0 truncate max-w-[80px]">{video.referent.split(' ')[0]}</span>}
                     </div>
 
@@ -1280,7 +1273,7 @@ export default function Home() {
                   </div>
                   <div className="p-3">
                     <div className="flex items-start justify-between mb-1">
-                      <h3 className="font-semibold text-sm leading-tight flex-1 pr-2 truncate">{video.title}</h3>
+                      <h3 className="font-semibold text-sm leading-tight flex-1 pr-2 truncate">{displayTitle(video)}</h3>
                       <span className="text-xs text-gray-400 shrink-0">{vs}</span>
                     </div>
                     <div className="flex gap-1 mb-2">
