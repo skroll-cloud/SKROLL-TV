@@ -12,7 +12,8 @@ const supabase = createClient(
 const font = Bricolage_Grotesque({ subsets: ['latin'], weight: ['400', '600', '800'] })
 
 // Future public home page. For now it is only shown to the team (logged in), with its texts editable in place (table site_content).
-// The mosaic shows the shorts already broadcast (broadcast_schedule, day + 18:30 Paris passed); "Aperçu" shows every PAD episode.
+// The feed shows the 9 latest shorts already broadcast (broadcast_schedule, day + post time Paris passed), the mosaic all of them;
+// "Aperçu" counts everything planned up to tonight as broadcast. Phones get the 9:16 versions, computers the 4:3.
 const C = { film: '#1A0E17', neon: '#FF2E9A', tube: '#FFD3EC', amber: '#F0A957', paper: '#FBEAF2', ink: '#2A1424' }
 const MONTHS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre']
 
@@ -35,6 +36,14 @@ export default function Accueil() {
   const [editing, setEditing] = useState(false)
   const [preview, setPreview] = useState(false)
   const [playing, setPlaying] = useState(null)
+  const [phone, setPhone] = useState(false)
+
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)')
+    const on = () => setPhone(mq.matches)
+    on(); mq.addEventListener('change', on)
+    return () => mq.removeEventListener('change', on)
+  }, [])
 
   useEffect(() => {
     const saved = localStorage.getItem('skroll_user')
@@ -42,8 +51,8 @@ export default function Accueil() {
     setUser(saved)
     Promise.all([
       supabase.from('site_content').select('key,value'),
-      supabase.from('pad_videos').select('id,number,title,file_url,thumb_url,status').order('number'),
-      supabase.from('broadcast_schedule').select('day,post_time,pad_ids').eq('format', 'short').order('day'),
+      supabase.from('pad_videos').select('id,number,title,file_url,vertical_url,thumb_url,status').order('number'),
+      supabase.from('broadcast_schedule').select('day,post_time,pad_ids').eq('format', 'short').order('day').order('post_time').order('created_at'),
     ]).then(([t, v, s]) => {
       if (t.data) setTexts(Object.fromEntries(t.data.map(r => [r.key, r.value])))
       if (v.data) setVideos(v.data)
@@ -67,12 +76,10 @@ export default function Accueil() {
 
   const byId = Object.fromEntries(videos.map(v => [v.id, v]))
   const now = new Date()
-  const aired = shorts.filter(e => broadcastDone(e, now) && byId[e.pad_ids[0]]).map(e => ({ ...byId[e.pad_ids[0]], day: e.day })).reverse()
-  const next = shorts.find(e => !broadcastDone(e, now))
-  // preview: 9 episodes, dated as if aired from 1 November, to see the mosaic after a week and a bit
-  const tiles = preview
-    ? videos.filter(v => v.file_url).slice(0, 9).map((v, i) => ({ ...v, day: `2026-11-${String(i + 1).padStart(2, '0')}` })).reverse()
-    : aired
+  // preview: as if it were tonight after the last post of the day
+  const cutoff = preview ? new Date(`${now.toLocaleDateString('sv-SE', { timeZone: 'Europe/Paris' })}T23:59:00+01:00`) : now
+  const tiles = shorts.filter(e => broadcastDone(e, cutoff) && byId[e.pad_ids[0]]).map(e => ({ ...byId[e.pad_ids[0]], day: e.day })).reverse()
+  const next = shorts.find(e => !broadcastDone(e, cutoff))
   const latest = tiles[0]
 
   const Text = ({ k, as: Tag = 'p', className = '', rows = 4 }) => editing
@@ -85,7 +92,7 @@ export default function Accueil() {
       <div className="sticky top-0 z-40 flex flex-wrap items-center gap-3 px-4 py-2 text-sm" style={{ background: C.neon, color: C.film }}>
         <span className="font-semibold flex-1 min-w-[200px]">Aperçu privé : cette page n'est visible que par l'équipe.</span>
         <button onClick={() => setPreview(p => !p)} className="rounded-full border-2 px-3 py-0.5 font-semibold" style={{ borderColor: C.film }}>
-          {preview ? 'Voir seulement les épisodes diffusés' : 'Aperçu avec 9 épisodes diffusés'}
+          {preview ? 'Voir seulement les épisodes déjà diffusés' : 'Aperçu de ce soir (tout ce qui est programmé aujourd\'hui)'}
         </button>
         <button onClick={() => setEditing(e => !e)} className="rounded-full px-3 py-0.5 font-semibold" style={{ background: C.film, color: C.tube }}>
           {editing ? 'Terminer la modification' : 'Modifier les textes'}
@@ -108,11 +115,12 @@ export default function Accueil() {
         <section className="max-w-3xl mx-auto px-4 pb-14">
           <h2 className="text-2xl md:text-3xl font-extrabold mb-1" style={{ color: C.neon }}>Les épisodes</h2>
           <p className="mb-4 text-sm" style={{ color: C.amber }}>Du plus récent au plus ancien. Faites défiler vers le haut, ou laissez-les s'enchaîner.</p>
-          <Feed items={tiles} />
+          <Feed items={tiles.slice(0, 9)} phone={phone} />
+          {tiles.length > 1 && <a href="#tous" className="inline-block mt-1 underline" style={{ color: C.tube }}>Voir tous les épisodes ({tiles.length}) ↓</a>}
         </section>
       )}
 
-      <section aria-label="Tous les épisodes" className="relative py-6" style={{ background: '#0F070D' }}>
+      <section id="tous" aria-label="Tous les épisodes" className="relative py-6" style={{ background: '#0F070D' }}>
         <div aria-hidden className="absolute inset-y-0 left-0 w-5 md:w-8" style={{ backgroundImage: `radial-gradient(ellipse 35% 22% at 50% 50%, ${C.film} 98%, transparent 100%)`, backgroundSize: '100% 28px', backgroundColor: '#000' }} />
         <div aria-hidden className="absolute inset-y-0 right-0 w-5 md:w-8" style={{ backgroundImage: `radial-gradient(ellipse 35% 22% at 50% 50%, ${C.film} 98%, transparent 100%)`, backgroundSize: '100% 28px', backgroundColor: '#000' }} />
         <div className="px-7 md:px-12">
@@ -157,7 +165,9 @@ export default function Accueil() {
       {playing && (
         <div role="dialog" aria-modal="true" aria-label={playing.title} className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4" onClick={() => setPlaying(null)}>
           <div className="w-full max-w-4xl" style={{ maxWidth: 'min(56rem, 106vh)' }} onClick={e => e.stopPropagation()}>
-            <video src={playing.file_url} controls autoPlay playsInline className="w-full aspect-[4/3] bg-black" />
+            {phone && playing.vertical_url
+              ? <video src={playing.vertical_url} controls autoPlay playsInline className="w-full max-h-[80svh] aspect-[9/16] bg-black" />
+              : <video src={playing.file_url} controls autoPlay playsInline className="w-full aspect-[4/3] bg-black" />}
             <div className="flex items-center justify-between mt-2">
               <p className="text-lg font-semibold">{playing.title}</p>
               <button onClick={() => setPlaying(null)} className="underline">Fermer</button>
@@ -172,21 +182,22 @@ export default function Accueil() {
 // Player central en défilement vertical, comme un fil Instagram : une vidéo par écran (scroll-snap),
 // celle qui est à l'écran joue, et à la fin la suivante monte par le bas. Le son se coupe par défaut
 // (les navigateurs bloquent la lecture automatique avec le son) ; une fois activé, il reste actif pour les suivantes.
-function Feed({ items }) {
+function Feed({ items, phone }) {
   const box = useRef(null)
   const vids = useRef([])
   const [current, setCurrent] = useState(0)
   const [muted, setMuted] = useState(true)
   const [progress, setProgress] = useState(0)
 
-  useEffect(() => {
-    const root = box.current
-    const io = new IntersectionObserver(entries => {
-      for (const en of entries) if (en.isIntersecting) setCurrent(Number(en.target.dataset.i))
-    }, { root, threshold: 0.6 })
-    root.querySelectorAll('[data-i]').forEach(el => io.observe(el))
-    return () => io.disconnect()
-  }, [items])
+  // the episode on screen is the one the scroll snapped to
+  function onScroll() {
+    const el = box.current
+    const i = Math.round(el.scrollTop / el.clientHeight)
+    if (i !== current && Math.abs(el.scrollTop - i * el.clientHeight) < el.clientHeight * 0.2) setCurrent(i)
+  }
+
+  const ids = items.map(v => v.id).join()
+  useEffect(() => { box.current.scrollTop = 0; setCurrent(0) }, [ids])
 
   useEffect(() => {
     vids.current.forEach((v, i) => {
@@ -194,7 +205,7 @@ function Feed({ items }) {
       if (i === current) { v.currentTime = 0; v.play().catch(() => {}) } else v.pause()
     })
     setProgress(0)
-  }, [current, items])
+  }, [current, ids])
 
   function go(i) {
     const n = (i + items.length) % items.length
@@ -209,13 +220,13 @@ function Feed({ items }) {
 
   return (
     <div>
-      <div className="relative">
-        <div ref={box} tabIndex={0} onKeyDown={onKey} aria-label="Épisodes, flèches haut et bas pour changer"
-          className="aspect-[4/3] w-full overflow-y-scroll snap-y snap-mandatory bg-black rounded-sm focus:outline-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <div className={`relative ${phone ? '-mx-4' : ''}`}>
+        <div ref={box} tabIndex={0} onKeyDown={onKey} onScroll={onScroll} aria-label="Épisodes, flèches haut et bas pour changer"
+          className={`${phone ? 'h-[85svh]' : 'aspect-[4/3]'} w-full overflow-y-scroll snap-y snap-mandatory bg-black rounded-sm focus:outline-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden`}>
           {items.map((v, i) => (
             <div key={v.id + (v.day || '')} data-i={i} className="relative h-full w-full snap-start snap-always">
               {Math.abs(i - current) <= 1
-                ? <video ref={el => (vids.current[i] = el)} src={v.file_url} poster={v.thumb_url || undefined} muted={muted} playsInline preload="auto"
+                ? <video ref={el => (vids.current[i] = el)} src={phone && v.vertical_url ? v.vertical_url : v.file_url} poster={v.thumb_url || undefined} muted={muted} playsInline preload="auto"
                     onClick={e => (e.target.paused ? e.target.play() : e.target.pause())}
                     onTimeUpdate={e => i === current && setProgress(e.target.currentTime / (e.target.duration || 1))}
                     onEnded={() => go(i + 1)}
