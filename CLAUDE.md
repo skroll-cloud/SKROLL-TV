@@ -17,7 +17,8 @@ No linter, no test suite configured.
 **Stack:** Next.js 16 (App Router) + Supabase + Tailwind CSS. No TypeScript in the two main page files (`.js`), though the project has TS config and `layout.tsx`.
 
 **Routes:**
-- `app/page.js` — main SPA (all sections rendered conditionally on `currentSection` state)
+- `app/page.js` — public home page at skroll.tv (re-exports `app/accueil/page.js`; `/accueil` redirects to `/`)
+- `app/equipe/page.js` — team workspace SPA behind the password login (all sections rendered conditionally on `currentSection` state); internal pages send logged-out visitors and their back-links to `/equipe`
 - `app/video/[id]/page.js` — video detail page (old work-in-progress videos)
 - `app/pad/page.js` — PAD catalogue (`pad_videos`): final validation per person, schedule status, download for the 9:16 versions
 - `app/diffusion/page.js` — broadcast calendar (`broadcast_schedule`), fed by `pad_videos`
