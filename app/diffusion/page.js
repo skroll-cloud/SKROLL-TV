@@ -83,7 +83,7 @@ function shortName(v) {
 
 // no episode title in the posts: it would give the joke away
 function defaultCaption(v) {
-  return `Archives Cinémathèque de Bretagne${v.archives.length ? ` (n° ${v.archives.join(', ')})` : ''}. 100 % archives, 0 % IA.\n\n#skroll #bretagne #archives #humour`
+  return `Des images vraies, une histoire fausse.\nFilm amateur, archives de la Cinémathèque de Bretagne${v.archives.length ? ` (n° ${v.archives.join(', ')})` : ''}. 100 % archives, 0 % IA.\n\n#skroll #bretagne #archives #filmamateur #humour #parodie #vintage`
 }
 
 function readList(key, fallback) {
