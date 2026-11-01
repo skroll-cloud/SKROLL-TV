@@ -27,6 +27,12 @@ function num(v) {
   return `#${String(v.number).padStart(2, '0')}`
 }
 
+function shuffle(list) {
+  const a = [...list]
+  for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]] }
+  return a
+}
+
 function broadcastDone(e, now) {
   const at = new Date(`${e.day}T${e.post_time || '18:30'}:00+01:00`)
   return at <= now
@@ -42,6 +48,7 @@ export default function Accueil() {
   const [preview, setPreview] = useState(false)
   const [playing, setPlaying] = useState(null)
   const [phone, setPhone] = useState(false)
+  const [random, setRandom] = useState(null)
 
   useEffect(() => {
     const mq = window.matchMedia('(max-width: 767px)')
@@ -88,6 +95,9 @@ export default function Accueil() {
     .sort((a, b) => b.day.localeCompare(a.day) || (a.rank ?? 1e6) - (b.rank ?? 1e6) || b.i - a.i)
   const next = shorts.find(e => !broadcastDone(e, cutoff))
   const latest = tiles[0]
+  const feed = tiles.slice(0, 9)
+  // "Aléatoire" mixes the feed; each click draws a new order (kept only if it still holds the same episodes)
+  const shown = random && random.map(v => v.id).sort().join() === feed.map(v => v.id).sort().join() ? random : feed
 
   const Text = ({ k, as: Tag = 'p', className = '', rows = 4 }) => editing
     ? <textarea defaultValue={texts[k] || ''} rows={rows} onBlur={e => e.target.value !== texts[k] && save(k, e.target.value)}
@@ -121,8 +131,8 @@ export default function Accueil() {
       {latest && (
         <section className="max-w-3xl mx-auto px-4 pb-14">
           <h2 className="text-2xl md:text-3xl font-extrabold mb-1" style={{ color: C.neon }}>Les épisodes</h2>
-          <p className="mb-4 text-sm" style={{ color: C.amber }}>Du plus récent au plus ancien. Faites défiler vers le haut, ou laissez-les s'enchaîner.</p>
-          <Feed items={tiles.slice(0, 9)} phone={phone} />
+          <p className="mb-4 text-sm" style={{ color: C.amber }}>Du plus récent au plus ancien, ou en aléatoire. Faites défiler vers le haut, ou laissez-les s'enchaîner.</p>
+          <Feed items={shown} phone={phone} random={!!random} onRandom={() => setRandom(shuffle(feed))} onOrdered={() => setRandom(null)} />
           {tiles.length > 1 && <a href="#tous" className="inline-block mt-1 underline" style={{ color: C.tube }}>Voir tous les épisodes ({tiles.length}) ↓</a>}
         </section>
       )}
@@ -188,7 +198,7 @@ export default function Accueil() {
 // Player central en défilement vertical, comme un fil Instagram : une vidéo par écran (scroll-snap),
 // celle qui est à l'écran joue, et à la fin la suivante monte par le bas. Le son est actif par défaut ; si le navigateur
 // refuse la lecture automatique avec le son (avant tout clic sur la page), on joue sans le son et on le rétablit au premier geste.
-function Feed({ items, phone }) {
+function Feed({ items, phone, random, onRandom, onOrdered }) {
   const box = useRef(null)
   const vids = useRef([])
   const [current, setCurrent] = useState(0)
@@ -278,6 +288,10 @@ function Feed({ items, phone }) {
           <div className="h-full" style={{ width: `${progress * 100}%`, background: C.neon }} />
         </div>
         <div className="absolute top-3 right-3 flex gap-2">
+          <button onClick={onRandom} title="Mélanger les épisodes" className="rounded-full px-3 py-1 text-sm font-semibold" style={{ background: random ? C.neon : 'rgba(0,0,0,.6)', color: random ? C.film : C.tube }}>
+            Aléatoire
+          </button>
+          {random && <button onClick={onOrdered} title="Revenir du plus récent au plus ancien" className="rounded-full px-3 py-1 text-sm font-semibold" style={{ background: 'rgba(0,0,0,.6)', color: C.tube }}>Dans l'ordre</button>}
           <button onClick={e => { e.stopPropagation(); setMuted(m => !m) }} className="rounded-full px-3 py-1 text-sm font-semibold" style={{ background: 'rgba(0,0,0,.6)', color: C.tube }}>
             {muted ? 'Activer le son' : 'Couper le son'}
           </button>
