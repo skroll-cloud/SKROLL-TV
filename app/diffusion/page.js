@@ -16,13 +16,13 @@ const NETWORKS = [
   { id: 'youtube', label: 'YouTube', short: 'YT' },
 ]
 const ALL_NETWORKS = NETWORKS.map(n => n.id)
-// Diffusion strategy. November: a reel every day at 18:30 on the four networks, reposted as an Instagram story the next day at noon.
+// Diffusion strategy. November: a reel every day at 18:00 on the four networks, reposted as an Instagram story the next day at noon.
 // From December (to confirm after the November review), one slot a day alternating: reel Mon/Wed/Thu/Sat, compil Tue/Fri, episode on Sunday
 // (the full 2 minutes on YouTube + Facebook, an extract as a Reel on Instagram + TikTok pointing to it).
 const FORMATS = {
-  short: { label: 'Réel / Short', chip: 'bg-blue-50 border-blue-500 text-blue-950', dot: 'bg-blue-500', slots: 1, time: '18:30', networks: ALL_NETWORKS, hint: '9:16, 15–45 s : Reel Instagram et Facebook, TikTok, YouTube Short.' },
+  short: { label: 'Réel / Short', chip: 'bg-blue-50 border-blue-500 text-blue-950', dot: 'bg-blue-500', slots: 1, time: '18:00', networks: ALL_NETWORKS, hint: '9:16, 15–45 s : Reel Instagram et Facebook, TikTok, YouTube Short.' },
   story: { label: 'Story Instagram', chip: 'bg-sky-50 border-sky-300 text-sky-900', dot: 'bg-sky-300', slots: 0, time: '12:00', networks: ['instagram'], hint: 'Repost du réel de la veille en story, à midi.' },
-  compil: { label: 'Compil (série de 3)', chip: 'bg-orange-50 border-orange-500 text-orange-950', dot: 'bg-orange-500', slots: 3, time: '18:30', networks: ALL_NETWORKS, hint: '9:16, plus de 61 s : trois shorts déjà diffusés, montés ensemble.' },
+  compil: { label: 'Compil (série de 3)', chip: 'bg-orange-50 border-orange-500 text-orange-950', dot: 'bg-orange-500', slots: 3, time: '18:00', networks: ALL_NETWORKS, hint: '9:16, plus de 61 s : trois shorts déjà diffusés, montés ensemble.' },
   '2min': { label: 'Épisode 2 min', chip: 'bg-purple-50 border-purple-500 text-purple-950', dot: 'bg-purple-500', slots: null, time: '10:00', networks: ['youtube', 'facebook'], hint: '16:9, environ 2 minutes, sur YouTube et Facebook.' },
   extrait: { label: "Extrait d'épisode", chip: 'bg-fuchsia-50 border-fuchsia-400 text-fuchsia-950', dot: 'bg-fuchsia-400', slots: 0, time: '10:00', networks: ['instagram', 'tiktok'], hint: "Reel 9:16 tiré de l'épisode, avec renvoi vers YouTube (lien en bio)." },
 }
@@ -344,7 +344,7 @@ export default function DiffusionPage() {
               <button onClick={() => setPicked(null)} className="text-blue-700 hover:underline">Annuler</button>
             </div>
           )}
-          <p className="hidden md:block text-xs text-gray-500 mb-2">Placer un épisode PAD sur un jour crée son réel à 18 h 30 et sa story Instagram le lendemain à midi (la story suit son réel quand on le déplace). Glissez une publication sur un autre jour pour la déplacer ; si ce jour a déjà le même format, les deux s'échangent. Cliquez sur une publication pour la modifier ou déposer le fichier final 9:16.</p>
+          <p className="hidden md:block text-xs text-gray-500 mb-2">Placer un épisode PAD sur un jour crée son réel à 18 h et sa story Instagram le lendemain à midi (la story suit son réel quand on le déplace). Glissez une publication sur un autre jour pour la déplacer ; si ce jour a déjà le même format, les deux s'échangent. Cliquez sur une publication pour la modifier ou déposer le fichier final 9:16.</p>
 
           {/* Month grid (tablet and up) */}
           <div className="hidden md:block bg-white rounded-xl shadow-sm overflow-hidden">

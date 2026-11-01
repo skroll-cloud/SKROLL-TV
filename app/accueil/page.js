@@ -79,7 +79,7 @@ function shuffle(list) {
 }
 
 function broadcastDone(e, now) {
-  const at = new Date(`${e.day}T${e.post_time || '18:30'}:00+01:00`)
+  const at = new Date(`${e.day}T${e.post_time || '18:00'}:00+01:00`)
   return at <= now
 }
 
@@ -183,7 +183,7 @@ export default function Accueil() {
 
       <section className="max-w-3xl mx-auto px-4 pt-10 pb-12 text-center">
         <Text k="accroche" className="text-xl md:text-2xl leading-relaxed" rows={4} />
-        <p className="mt-6 text-lg md:text-xl" style={{ color: C.amber }}>Un nouvel épisode chaque soir à 18 h 30.</p>
+        <p className="mt-6 text-lg md:text-xl" style={{ color: C.amber }}>Un nouvel épisode chaque soir à 18 h.</p>
         <Socials size={30} className="mt-5 justify-center" color={C.neon} bg={C.film} />
       </section>
 
