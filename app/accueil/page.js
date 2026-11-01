@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@supabase/supabase-js'
-import { Bricolage_Grotesque } from 'next/font/google'
+import { Bricolage_Grotesque, Montserrat } from 'next/font/google'
 import { LAUNCH } from '../../lib/launch'
 
 const supabase = createClient(
@@ -11,6 +11,7 @@ const supabase = createClient(
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJpb3RkbGJkeXd4dW91dmRncXB0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzAxNTIxOTAsImV4cCI6MjA4NTcyODE5MH0.DymkDS6E-ouapVQerRjZSHDEeUbV81GY-5i7d5kOQ1w'
 )
 const font = Bricolage_Grotesque({ subsets: ['latin'], weight: ['400', '600', '800'] })
+const baselineFont = Montserrat({ subsets: ['latin'], weight: ['600'] })
 
 // Public home page from LAUNCH on (before that, team only). Logged-in team members get the pink bar: preview and texts editable in place (table site_content).
 // The feed shows the 9 latest shorts already broadcast (broadcast_schedule, day + post time Paris passed), the mosaic all of them;
@@ -143,7 +144,15 @@ export default function Accueil() {
       </div>}
 
       <header>
-        <img src="/banniere-skroll.jpg" alt="SKROLL, des images vraies, des histoires fausses" className="w-full h-[58vw] md:h-auto object-cover" />
+        {/* image HD sans baseline (logo néon net) ; la baseline est du vrai texte, nette à toutes les tailles */}
+        <div className="relative">
+          <img src="/banniere-skroll-hd.jpg" srcSet="/banniere-skroll-1600.jpg 1600w, /banniere-skroll-hd.jpg 3200w" sizes="100vw"
+            alt="" width="3200" height="1455" className="block w-full h-auto" />
+          <h1 className={`${baselineFont.className} absolute inset-x-0 text-center text-white leading-none`}
+            style={{ top: '65.5%', fontSize: 'max(3.3vw, 12px)', textShadow: '0 0 0.4em rgba(0,0,0,.45)' }}>
+            <span className="sr-only">SKROLL : </span>Des images vraies, des histoires fausses
+          </h1>
+        </div>
       </header>
 
       <section className="max-w-3xl mx-auto px-4 pt-10 pb-12 text-center">
