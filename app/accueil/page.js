@@ -85,7 +85,8 @@ export default function Accueil() {
     // old team link skroll.tv/?equipe
     if (new URLSearchParams(location.search).has('equipe')) { router.replace('/equipe'); return }
     const saved = localStorage.getItem('skroll_user')
-    setUser(saved)
+    // the pink team bar only shows when opened from the workspace (skroll.tv/?modifier)
+    if (new URLSearchParams(location.search).has('modifier')) setUser(saved)
     setReady(true)
     Promise.all([
       supabase.from('site_content').select('key,value'),
