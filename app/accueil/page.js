@@ -268,6 +268,7 @@ function Feed({ items, phone, random, onRandom, onOrdered }) {
   const vids = useRef([])
   const [current, setCurrent] = useState(0)
   const [muted, setMuted] = useState(false)
+  const [blocked, setBlocked] = useState(false)   // muted by the browser, not by the visitor
   const [full, setFull] = useState(false)
   const [progress, setProgress] = useState(0)
 
@@ -286,19 +287,28 @@ function Feed({ items, phone, random, onRandom, onOrdered }) {
       if (!v) return
       if (i !== current) { v.pause(); return }
       v.currentTime = 0
-      v.play().catch(() => { v.muted = true; setMuted(true); v.play().catch(() => {}) })
+      v.play().catch(() => { v.muted = true; setBlocked(true); setMuted(true); v.play().catch(() => {}) })
     })
     setProgress(0)
   }, [current, ids])
 
+  // React does not update the muted property of a <video> after mount: set it on the elements directly, inside the user's gesture
+  function sound(on) {
+    vids.current.forEach(v => { if (v) v.muted = !on })
+    const v = vids.current[current]
+    if (on && v?.paused) v.play().catch(() => {})
+    setMuted(!on)
+    setBlocked(false)
+  }
+
   // muted only because autoplay with sound was refused: the first tap or key on the page brings the sound back
   useEffect(() => {
-    if (!muted) return
-    const unmute = () => setMuted(false)
+    if (!blocked) return
+    const unmute = e => { if (!e.target.closest?.('[data-sound]')) sound(true) }   // the sound button handles its own click
     window.addEventListener('pointerdown', unmute, { once: true })
     window.addEventListener('keydown', unmute, { once: true })
     return () => { window.removeEventListener('pointerdown', unmute); window.removeEventListener('keydown', unmute) }
-  }, [muted])
+  }, [blocked, current])
 
   useEffect(() => {
     const on = () => {
@@ -337,7 +347,7 @@ function Feed({ items, phone, random, onRandom, onOrdered }) {
           {items.map((v, i) => (
             <div key={v.id + (v.day || '')} data-i={i} className="relative h-full w-full snap-start snap-always">
               {Math.abs(i - current) <= 1
-                ? <video ref={el => (vids.current[i] = el)} src={phone && v.vertical_url ? v.vertical_url : v.file_url} poster={v.thumb_url || undefined} muted={muted} playsInline preload="auto"
+                ? <video ref={el => { vids.current[i] = el; if (el) el.muted = muted }} src={phone && v.vertical_url ? v.vertical_url : v.file_url} poster={v.thumb_url || undefined} muted={muted} playsInline preload="auto"
                     onClick={e => (e.target.paused ? e.target.play() : e.target.pause())}
                     onTimeUpdate={e => { if (i !== current) return; setProgress(e.target.currentTime / (e.target.duration || 1)); watched(e, v, 'fil') }}
                     onEnded={() => go(i + 1)}
@@ -357,7 +367,7 @@ function Feed({ items, phone, random, onRandom, onOrdered }) {
             Aléatoire
           </button>}
           {random && <button onClick={onOrdered} title="Revenir du plus récent au plus ancien" className="rounded-full px-3 py-1 text-sm font-semibold" style={{ background: 'rgba(0,0,0,.6)', color: C.tube }}>Dans l'ordre</button>}
-          <button onClick={e => { e.stopPropagation(); setMuted(m => !m) }} className="rounded-full px-3 py-1 text-sm font-semibold" style={{ background: 'rgba(0,0,0,.6)', color: C.tube }}>
+          <button data-sound onClick={e => { e.stopPropagation(); sound(muted) }} className="rounded-full px-3 py-1 text-sm font-semibold" style={muted ? { background: C.neon, color: C.film } : { background: 'rgba(0,0,0,.6)', color: C.tube }}>
             {muted ? 'Activer le son' : 'Couper le son'}
           </button>
           <button onClick={toggleFull} aria-label={full ? 'Quitter le plein écran' : 'Plein écran'} title={full ? 'Quitter le plein écran' : 'Plein écran'}
