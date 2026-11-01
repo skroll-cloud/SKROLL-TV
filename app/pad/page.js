@@ -32,6 +32,16 @@ function shortDay(day) {
   return `${WEEKDAYS[new Date(y, m - 1, d).getDay()]} ${d} ${MONTHS_SHORT[m - 1]}`
 }
 
+// nom DaVinci / fichiers attendu pour un titre : #NN_SKROLL_<archives>_<titre>
+function expectedName(v) {
+  return `#${String(v.number).padStart(2, '0')}_SKROLL_${v.archives.length ? v.archives.join('_') : '0000'}_${v.title.trim().replace(/\s+/g, '_')}`
+}
+
+// un « _ » sépare les morceaux du nom, et certains caractères sont interdits dans les noms de fichiers
+function cleanTitle(t) {
+  return t.replace(/[_/\\:*?"<>|#]/g, ' ').replace(/\s+/g, ' ').trim()
+}
+
 function duration(s) {
   if (!s) return ''
   const n = Math.round(s)
@@ -160,6 +170,7 @@ export default function PadPage() {
                     <p className="text-xs text-gray-500">
                       {duration(v.duration_s)}{v.archives.length ? ` · archives ${v.archives.join(', ')}` : ''}
                       {planned.length ? <span className="text-green-700"> · programmé le {planned.map(e => shortDay(e.day)).join(', ')}</span> : ''}
+                      {expectedName(v) !== v.name ? <span className="text-blue-700"> · nouveau titre, à reporter dans DaVinci et les fichiers</span> : ''}
                       {v.note ? <span className="text-orange-700"> · {v.note.length > 60 ? v.note.slice(0, 60) + '…' : v.note}</span> : ''}
                     </p>
                   </button>
@@ -183,6 +194,10 @@ export default function PadPage() {
                       ? <video src={v.file_url} controls autoPlay playsInline preload="metadata" className="w-full bg-black rounded-lg aspect-[4/3]" />
                       : <div className="w-full bg-gray-100 rounded-lg aspect-[4/3] flex items-center justify-center text-sm text-gray-500">Fichier pas encore envoyé</div>}
                     <div className="space-y-3">
+                      <label className="block text-sm font-semibold text-gray-900">Titre
+                        <TitleInput value={v.title} onSave={title => update(v.id, { title })} />
+                        {expectedName(v) !== v.name && <span className="block text-xs font-normal text-blue-700 mt-1">Pas encore reporté dans DaVinci ni dans les noms de fichiers (actuellement {v.name}).</span>}
+                      </label>
                       <VerticalSlot v={v} uploading={uploading === v.id} onUpload={file => uploadVertical(v, file)} />
                       <label className="block text-sm font-semibold text-gray-900">Modif à faire / note
                         <NoteInput value={v.note || ''} onSave={note => update(v.id, { note })} />
@@ -203,6 +218,19 @@ export default function PadPage() {
       </main>
     </div>
   )
+}
+
+function TitleInput({ value, onSave }) {
+  const [draft, setDraft] = useState(value)
+  useEffect(() => setDraft(value), [value])
+  function save() {
+    const t = cleanTitle(draft)
+    if (!t) { setDraft(value); return }
+    setDraft(t)
+    if (t !== value) onSave(t)
+  }
+  return <input value={draft} onChange={e => setDraft(e.target.value)} onBlur={save} onKeyDown={e => e.key === 'Enter' && e.target.blur()}
+    className="mt-1 w-full border rounded-lg px-3 py-2 text-sm font-normal text-gray-800 focus:outline-none focus:border-blue-400" />
 }
 
 function NoteInput({ value, onSave }) {
