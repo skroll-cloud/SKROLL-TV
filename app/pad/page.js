@@ -20,7 +20,8 @@ const FILTERS = [
   ['all', 'Tous'],
   ['todo', 'À voir'],
   ['modif', 'Modif à faire'],
-  ['pad', 'PAD'],
+  ['pad', 'PAD à diffuser'],
+  ['aired', 'Diffusés'],
   ['unscheduled', 'PAD pas programmés'],
   ['vertical', '9:16 à faire'],
 ]
@@ -110,11 +111,16 @@ export default function PadPage() {
 
   // a short = the episode's own post; compils and other formats reuse it
   const slots = id => entries.filter(e => e.format === 'short' && e.pad_ids.includes(id))
+  // aired = its short's day and time are past (Paris); it then leaves the "PAD à diffuser" tab for "Diffusés"
+  const now = new Date()
+  const aired = id => slots(id).filter(e => new Date(`${e.day}T${e.post_time || '18:00'}:00+01:00`) <= now)
   const reuses = id => entries.filter(e => !['short', 'story'].includes(e.format) && e.pad_ids.includes(id))
   const matches = v => {
     if (search && !`${v.number} ${v.title} ${v.name}`.toLowerCase().includes(search.toLowerCase())) return false
     if (filter === 'todo') return !v.status
-    if (filter === 'modif' || filter === 'pad') return v.status === filter
+    if (filter === 'modif') return v.status === 'modif'
+    if (filter === 'pad') return v.status === 'pad' && !aired(v.id).length
+    if (filter === 'aired') return aired(v.id).length > 0
     if (filter === 'unscheduled') return v.status === 'pad' && !slots(v.id).length
     if (filter === 'vertical') return !v.vertical_url
     return true
@@ -124,7 +130,8 @@ export default function PadPage() {
     all: videos.length,
     todo: videos.filter(v => !v.status).length,
     modif: videos.filter(v => v.status === 'modif').length,
-    pad: videos.filter(v => v.status === 'pad').length,
+    pad: videos.filter(v => v.status === 'pad' && !aired(v.id).length).length,
+    aired: videos.filter(v => aired(v.id).length).length,
     unscheduled: videos.filter(v => v.status === 'pad' && !slots(v.id).length).length,
     vertical: videos.filter(v => !v.vertical_url).length,
   }
@@ -162,6 +169,7 @@ export default function PadPage() {
           {shown.map(v => {
             const open = openId === v.id
             const planned = slots(v.id)
+            const done = aired(v.id)
             return (
               <li key={v.id} className="px-3 md:px-4 py-3">
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
@@ -169,12 +177,13 @@ export default function PadPage() {
                     <p className="font-medium text-gray-900 break-words"><span className="tabular-nums text-gray-400 mr-2">#{String(v.number).padStart(2, '0')}</span>{v.title}</p>
                     <p className="text-xs text-gray-500">
                       {duration(v.duration_s)}{v.archives.length ? ` · archives ${v.archives.join(', ')}` : ''}
-                      {planned.length ? <span className="text-green-700"> · programmé le {planned.map(e => shortDay(e.day)).join(', ')}</span> : ''}
+                      {planned.length > done.length ? <span className="text-green-700"> · programmé le {planned.filter(e => !done.includes(e)).map(e => shortDay(e.day)).join(', ')}</span> : ''}
                       {expectedName(v) !== v.name ? <span className="text-blue-700"> · nouveau titre, à reporter dans DaVinci et les fichiers</span> : ''}
                       {v.note ? <span className="text-orange-700"> · {v.note.length > 60 ? v.note.slice(0, 60) + '…' : v.note}</span> : ''}
                     </p>
                   </button>
                   <div className="flex gap-1.5">
+                    {done.length > 0 && <span title={`Diffusé le ${done.map(e => `${shortDay(e.day)} à ${e.post_time}`).join(', ')}`} className="rounded-lg px-3 py-1.5 text-sm font-medium border bg-purple-600 border-purple-600 text-white">Diffusé · {shortDay(done[done.length - 1].day)}</span>}
                     {Object.entries(STATUS).map(([id, s]) => (
                       <button key={id} onClick={() => update(v.id, { status: v.status === id ? null : id })}
                         className={`rounded-lg px-3 py-1.5 text-sm font-medium border ${v.status === id ? s.on : `text-gray-600 ${s.hover}`}`}>{s.label}</button>
