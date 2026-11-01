@@ -62,7 +62,7 @@ export default function PadPage() {
 
   useEffect(() => {
     const saved = localStorage.getItem('skroll_user')
-    if (!saved) { router.push('/'); return }
+    if (!saved) { router.push('/equipe'); return }
     setCurrentUser(saved)
     try { setFilter(localStorage.getItem('skroll_pad_filter2') || 'all') } catch {}
     load()
@@ -133,7 +133,7 @@ export default function PadPage() {
     <div className="min-h-screen bg-gray-50">
       <header className="bg-white border-b sticky top-0 z-30">
         <div className="px-4 md:px-6 py-3 flex justify-between items-center">
-          <button onClick={() => router.push('/')} className="text-sm text-gray-500 hover:text-gray-800">← Espace de travail</button>
+          <button onClick={() => router.push('/equipe')} className="text-sm text-gray-500 hover:text-gray-800">← Espace de travail</button>
           <h1 className="text-lg font-bold text-blue-600 tracking-tight">SKROLL.TV</h1>
           <button onClick={() => router.push('/diffusion')} className="text-sm text-gray-500 hover:text-gray-800">Planning →</button>
         </div>

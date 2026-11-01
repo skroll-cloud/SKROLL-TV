@@ -81,7 +81,7 @@ export default function VideoPage({ params }) {
   useEffect(() => {
     const saved = localStorage.getItem('skroll_user')
     if (saved) setCurrentUser(saved)
-    else router.push('/')
+    else router.push('/equipe')
   }, [])
 
   useEffect(() => {
@@ -222,7 +222,7 @@ export default function VideoPage({ params }) {
 
   function navigateToSection(sectionId) {
     localStorage.setItem('skroll_section', sectionId)
-    router.push('/')
+    router.push('/equipe')
   }
 
   async function updateVideoType(typeId) {
@@ -315,7 +315,7 @@ export default function VideoPage({ params }) {
       <header className="bg-white border-b sticky top-0 z-50 shadow-sm">
         <div className="px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <button onClick={() => router.push('/')} className="md:hidden flex items-center gap-1 text-gray-600">
+            <button onClick={() => router.push('/equipe')} className="md:hidden flex items-center gap-1 text-gray-600">
               <span className="text-xl">←</span>
             </button>
             <h1 className="text-xl font-bold text-blue-600 hidden md:block">SKROLL.TV</h1>

@@ -4,7 +4,6 @@ import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@supabase/supabase-js'
 import { Bricolage_Grotesque, Montserrat } from 'next/font/google'
-import { LAUNCH } from '../../lib/launch'
 
 const supabase = createClient(
   'https://riotdlbdywxuouvdgqpt.supabase.co',
@@ -13,7 +12,7 @@ const supabase = createClient(
 const font = Bricolage_Grotesque({ subsets: ['latin'], weight: ['400', '600', '800'] })
 const baselineFont = Montserrat({ subsets: ['latin'], weight: ['600'] })
 
-// Public home page from LAUNCH on (before that, team only). Logged-in team members get the pink bar: preview and texts editable in place (table site_content).
+// Public home page, served at / (the team works at /equipe). Logged-in team members get the pink bar: preview and texts editable in place (table site_content).
 // The feed shows the 9 latest shorts already broadcast (broadcast_schedule, day + post time Paris passed), the mosaic all of them;
 // "Aperçu" counts everything planned up to tonight as broadcast. Phones get the 9:16 versions, computers the 4:3.
 const C = { film: '#1A0E17', neon: '#FF2E9A', tube: '#FFD3EC', amber: '#F0A957', paper: '#FBEAF2', ink: '#2A1424' }
@@ -83,8 +82,9 @@ export default function Accueil() {
   }, [])
 
   useEffect(() => {
+    // old team link skroll.tv/?equipe
+    if (new URLSearchParams(location.search).has('equipe')) { router.replace('/equipe'); return }
     const saved = localStorage.getItem('skroll_user')
-    if (!saved && new Date() < LAUNCH) { router.push('/'); return }
     setUser(saved)
     setReady(true)
     Promise.all([
@@ -133,14 +133,14 @@ export default function Accueil() {
   return (
     <div className={font.className} style={{ background: C.film, color: C.tube }}>
       {user && <div className="sticky top-0 z-40 flex flex-wrap items-center gap-3 px-4 py-2 text-sm" style={{ background: C.neon, color: C.film }}>
-        <span className="font-semibold flex-1 min-w-[200px]">Aperçu privé : cette page n'est visible que par l'équipe.</span>
+        <span className="font-semibold flex-1 min-w-[200px]">Connecté·e en équipe : ce bandeau n'est visible que par vous.</span>
         <button onClick={() => setPreview(p => !p)} className="rounded-full border-2 px-3 py-0.5 font-semibold" style={{ borderColor: C.film }}>
           {preview ? 'Voir seulement les épisodes déjà diffusés' : 'Aperçu de ce soir (tout ce qui est programmé aujourd\'hui)'}
         </button>
         <button onClick={() => setEditing(e => !e)} className="rounded-full px-3 py-0.5 font-semibold" style={{ background: C.film, color: C.tube }}>
           {editing ? 'Terminer la modification' : 'Modifier les textes'}
         </button>
-        <button onClick={() => router.push('/')} className="underline">Espace de travail</button>
+        <button onClick={() => router.push('/equipe')} className="underline">Espace de travail</button>
       </div>}
 
       <header>
@@ -216,7 +216,7 @@ export default function Accueil() {
 
       <footer className="px-4 py-6 text-center text-xs" style={{ background: C.film, color: C.tube }}>
         <span className="opacity-60">SKROLL · des images vraies, des histoires fausses · </span>
-        <a href="/?equipe" className="opacity-40 hover:opacity-80 underline">Espace équipe</a>
+        <a href="/equipe" className="opacity-40 hover:opacity-80 underline">Se connecter</a>
       </footer>
 
       {playing && (
