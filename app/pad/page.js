@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@supabase/supabase-js'
 
@@ -11,6 +11,7 @@ const supabase = createClient(
 
 // Catalogue des épisodes (table pad_videos) : fichiers finis, mixés et habillés dans DaVinci.
 // Chaque épisode passe en « Modif à faire » ou en « PAD » ; les PAD apparaissent dans la liste à côté du planning de diffusion.
+// Chaque épisode a aussi sa version 9:16 (vertical_url) : c'est elle que le planning publie pour ses réels.
 const STATUS = {
   modif: { label: 'Modif à faire', on: 'bg-orange-400 border-orange-400 text-white', hover: 'hover:border-orange-400' },
   pad: { label: 'PAD', on: 'bg-green-500 border-green-500 text-white', hover: 'hover:border-green-500' },
@@ -21,6 +22,7 @@ const FILTERS = [
   ['modif', 'Modif à faire'],
   ['pad', 'PAD'],
   ['unscheduled', 'PAD pas programmés'],
+  ['vertical', '9:16 à faire'],
 ]
 const MONTHS_SHORT = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.']
 const WEEKDAYS = ['dim.', 'lun.', 'mar.', 'mer.', 'jeu.', 'ven.', 'sam.']
@@ -46,6 +48,7 @@ export default function PadPage() {
   const [filter, setFilter] = useState('all')
   const [search, setSearch] = useState('')
   const [openId, setOpenId] = useState(null)
+  const [uploading, setUploading] = useState(null)
 
   useEffect(() => {
     const saved = localStorage.getItem('skroll_user')
@@ -74,6 +77,20 @@ export default function PadPage() {
     if (error) { setError('Pas enregistré. Vérifiez la connexion et réessayez.'); load() }
   }
 
+  async function uploadVertical(v, file) {
+    if (!file) return
+    setUploading(v.id)
+    const safe = file.name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\w.-]/g, '_')
+    const filePath = `pad/916/${Date.now()}-${safe}`
+    const { error } = await supabase.storage.from('Videos').upload(filePath, file, { cacheControl: '3600', upsert: false })
+    if (error) setError(`Envoi du 9:16 impossible : ${error.message}`)
+    else {
+      const { data } = supabase.storage.from('Videos').getPublicUrl(filePath)
+      await update(v.id, { vertical_url: data.publicUrl, vertical_name: file.name, vertical_uploaded_at: new Date().toISOString(), vertical_uploaded_by: currentUser })
+    }
+    setUploading(null)
+  }
+
   function chooseFilter(f) {
     setFilter(f)
     try { localStorage.setItem('skroll_pad_filter2', f) } catch {}
@@ -89,6 +106,7 @@ export default function PadPage() {
     if (filter === 'todo') return !v.status
     if (filter === 'modif' || filter === 'pad') return v.status === filter
     if (filter === 'unscheduled') return v.status === 'pad' && !slots(v.id).length
+    if (filter === 'vertical') return !v.vertical_url
     return true
   }
   const shown = videos.filter(matches)
@@ -98,6 +116,7 @@ export default function PadPage() {
     modif: videos.filter(v => v.status === 'modif').length,
     pad: videos.filter(v => v.status === 'pad').length,
     unscheduled: videos.filter(v => v.status === 'pad' && !slots(v.id).length).length,
+    vertical: videos.filter(v => !v.vertical_url).length,
   }
 
   return (
@@ -112,7 +131,7 @@ export default function PadPage() {
 
       <main className="max-w-5xl mx-auto px-4 md:px-6 py-5">
         <h2 className="text-2xl md:text-3xl font-bold text-gray-900">Épisodes</h2>
-        <p className="text-sm text-gray-500 mt-1 mb-4">Versions mixées et habillées. Passez chaque épisode en « Modif à faire » ou en « PAD » : les PAD apparaissent à côté du planning, prêts à être glissés sur un jour. Téléchargez-les pour fabriquer les 9:16.</p>
+        <p className="text-sm text-gray-500 mt-1 mb-4">Versions mixées et habillées. Passez chaque épisode en « Modif à faire » ou en « PAD » : les PAD apparaissent à côté du planning, prêts à être glissés sur un jour. Chaque épisode a sa version 9:16, téléchargeable ou à déposer : c'est elle que publient les réels du planning.</p>
 
         <div className="flex flex-wrap gap-2 mb-3">
           {FILTERS.map(([id, label]) => (
@@ -151,8 +170,11 @@ export default function PadPage() {
                     ))}
                   </div>
                   {v.file_url
-                    ? <a href={`${v.file_url}?download=${encodeURIComponent(v.file_name)}`} className="text-sm border rounded-lg px-3 py-1.5 text-gray-700 hover:bg-gray-100">Télécharger</a>
+                    ? <a href={`${v.file_url}?download=${encodeURIComponent(v.file_name)}`} className="text-sm border rounded-lg px-3 py-1.5 text-gray-700 hover:bg-gray-100">Télécharger 4:3</a>
                     : <span className="text-xs text-gray-400">fichier en cours d'envoi</span>}
+                  {v.vertical_url
+                    ? <a href={`${v.vertical_url}?download=${encodeURIComponent(v.vertical_name || v.file_name)}`} className="text-sm border border-green-500 rounded-lg px-3 py-1.5 text-green-800 hover:bg-green-50">Télécharger 9:16</a>
+                    : <button onClick={() => setOpenId(v.id)} className="text-sm border border-dashed rounded-lg px-3 py-1.5 text-gray-500 hover:border-gray-400">9:16 à faire</button>}
                 </div>
 
                 {open && (
@@ -161,6 +183,7 @@ export default function PadPage() {
                       ? <video src={v.file_url} controls autoPlay playsInline preload="metadata" className="w-full bg-black rounded-lg aspect-[4/3]" />
                       : <div className="w-full bg-gray-100 rounded-lg aspect-[4/3] flex items-center justify-center text-sm text-gray-500">Fichier pas encore envoyé</div>}
                     <div className="space-y-3">
+                      <VerticalSlot v={v} uploading={uploading === v.id} onUpload={file => uploadVertical(v, file)} />
                       <label className="block text-sm font-semibold text-gray-900">Modif à faire / note
                         <NoteInput value={v.note || ''} onSave={note => update(v.id, { note })} />
                       </label>
@@ -188,4 +211,24 @@ function NoteInput({ value, onSave }) {
   return <textarea rows={3} value={draft} onChange={e => setDraft(e.target.value)} onBlur={() => draft !== value && onSave(draft)}
     placeholder="Ce qu'il faut modifier, remarque pour le 9:16…"
     className="mt-1 w-full border rounded-lg px-3 py-2 text-sm font-normal text-gray-800 focus:outline-none focus:border-blue-400" />
+}
+
+function VerticalSlot({ v, uploading, onUpload }) {
+  const input = useRef(null)
+  return (
+    <div>
+      <p className="text-sm font-semibold text-gray-900 mb-1">Version 9:16</p>
+      {v.vertical_url
+        ? <>
+            <video src={v.vertical_url} controls playsInline preload="metadata" className="h-64 aspect-[9/16] bg-black rounded-lg" />
+            <p className="text-xs text-gray-500 mt-1 break-all">{v.vertical_name}{v.vertical_uploaded_by ? `, déposé par ${v.vertical_uploaded_by}` : ''}{v.vertical_uploaded_at ? ` le ${new Date(v.vertical_uploaded_at).toLocaleDateString('fr-FR')}` : ''}</p>
+          </>
+        : <p className="text-xs text-orange-700">Pas encore de 9:16. Les réels du planning publieront celui-ci.</p>}
+      <input ref={input} type="file" accept="video/*" className="hidden" onChange={ev => { onUpload(ev.target.files[0]); ev.target.value = '' }} />
+      <button onClick={() => input.current.click()} disabled={uploading}
+        className="mt-2 bg-gray-900 text-white px-3 py-1.5 rounded-lg text-sm font-medium disabled:opacity-40">
+        {uploading ? 'Envoi en cours…' : v.vertical_url ? 'Remplacer le 9:16' : 'Déposer le 9:16'}
+      </button>
+    </div>
+  )
 }

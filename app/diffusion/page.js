@@ -123,7 +123,7 @@ export default function DiffusionPage() {
   async function load() {
     const [s, v] = await Promise.all([
       supabase.from('broadcast_schedule').select('*').order('day', { ascending: true }).order('created_at', { ascending: true }),
-      supabase.from('pad_videos').select('id,number,title,archives,file_url,status').order('number')
+      supabase.from('pad_videos').select('id,number,title,archives,file_url,status,vertical_url,vertical_name').order('number')
     ])
     if (s.error || v.error) setError('Impossible de charger le planning. Rechargez la page.')
     else { setEntries(s.data); setVideos(v.data); setError('') }
@@ -136,7 +136,10 @@ export default function DiffusionPage() {
   const pickable = videos
   const locked = e => !!e.metricool_status
   const parentOf = e => e.parent_id && entries.find(x => x.id === e.parent_id)
-  const todo = e => !(e.format === 'story' ? parentOf(e)?.final_url : e.final_url)
+  // file a post will publish: its own final, else (reel) the episode's 9:16 from the Épisodes page; a story reuses its reel's
+  const ownFinal = e => e.final_url || (e.format === 'short' && byId[e.pad_ids[0]]?.vertical_url) || null
+  const finalOf = e => e.format === 'story' ? (parentOf(e) ? ownFinal(parentOf(e)) : null) : ownFinal(e)
+  const todo = e => !finalOf(e)
   const visible = e => shownFormats.includes(e.format) && e.networks.some(n => shownNetworks.includes(n)) && (!onlyTodo || todo(e))
   const editing = entries.find(e => e.id === editingId)
 
@@ -224,7 +227,7 @@ export default function DiffusionPage() {
   const weeks = monthWeeks(month.y, month.m)
   const monthPrefix = `${month.y}-${String(month.m + 1).padStart(2, '0')}`
   const monthEntries = entries.filter(e => e.day.startsWith(monthPrefix) && visible(e))
-  const readyCount = entries.filter(e => e.final_url).length
+  const readyCount = entries.filter(e => finalOf(e)).length
   const emptyShorts = entries.filter(e => e.format === 'short' && !e.pad_ids.length).length
   const unfinishedShorts = entries.filter(e => e.format === 'short' && byId[e.pad_ids[0]] && !isValidated(byId[e.pad_ids[0]])).length
   const dayEntries = day => entries.filter(e => e.day === day && visible(e)).sort((a, b) => (a.post_time || '').localeCompare(b.post_time || ''))
@@ -241,7 +244,7 @@ export default function DiffusionPage() {
 
   const Chip = ({ e }) => (
     <button {...(locked(e) || e.format === 'story' ? {} : dragProps({ entryId: e.id }))} onClick={ev => { ev.stopPropagation(); setEditingId(e.id) }}
-      title={`${e.post_time} · ${entryName(e)} · ${FORMATS[e.format].label}${e.final_url ? '' : ' · reste à faire'}`}
+      title={`${e.post_time} · ${entryName(e)} · ${FORMATS[e.format].label}${finalOf(e) ? '' : ' · reste à faire'}`}
       className={`w-full text-left text-xs rounded-md border-l-4 px-1.5 py-1 flex items-center gap-1 ${FORMATS[e.format].chip} ${todo(e) ? 'border-dashed opacity-80' : ''} ${locked(e) || e.format === 'story' ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing'}`}>
       <span className="line-clamp-2 break-words flex-1 leading-tight"><span className="opacity-60 tabular-nums mr-1">{e.post_time}</span><span className={`font-medium ${todo(e) ? 'italic' : ''}`}>{entryName(e)}</span>{e.format === 'short' && byId[e.pad_ids[0]] && workStatus(byId[e.pad_ids[0]]) && <span className="ml-1 text-[10px] uppercase tracking-wide text-gray-500">{workStatus(byId[e.pad_ids[0]])}</span>}</span>
       {locked(e) ? <span className="shrink-0 text-green-700" aria-label="Envoyé à Metricool">✓</span>
@@ -392,7 +395,7 @@ export default function DiffusionPage() {
       </div>
 
       {editing && (
-        <Editor entry={editing} parent={parentOf(editing)} locked={locked(editing)} pickable={pickable} byId={byId} uploading={uploading === editing.id}
+        <Editor entry={editing} finalUrl={finalOf(editing)} parent={parentOf(editing)} locked={locked(editing)} pickable={pickable} byId={byId} uploading={uploading === editing.id}
           name={entryName(editing)} onClose={() => setEditingId(null)} onChange={patch => updateEntry(editing.id, patch)}
           onUpload={file => uploadFinal(editing, file)} onDelete={() => deleteEntry(editing)} />
       )}
@@ -400,12 +403,11 @@ export default function DiffusionPage() {
   )
 }
 
-function Editor({ entry, parent, locked, pickable, byId, uploading, name, onClose, onChange, onUpload, onDelete }) {
+function Editor({ entry, finalUrl, parent, locked, pickable, byId, uploading, name, onClose, onChange, onUpload, onDelete }) {
   const fileInput = useRef(null)
   const format = FORMATS[entry.format]
   const slotCount = format.slots || entry.pad_ids.length + 1
   const isStory = entry.format === 'story'
-  const finalUrl = isStory ? parent?.final_url : entry.final_url
   const preview = finalUrl || byId[entry.pad_ids[0]]?.file_url
 
   useEffect(() => {
@@ -456,11 +458,13 @@ function Editor({ entry, parent, locked, pickable, byId, uploading, name, onClos
             {isStory ? (!finalUrl && <p className="text-xs text-orange-700">Reste à faire : le réel n'a pas encore de fichier final.</p>)
               : entry.final_url
               ? <p className="text-xs text-gray-600 break-all">Final : {entry.final_name}{entry.final_uploaded_by ? ` · déposé par ${entry.final_uploaded_by}` : ''}{entry.final_uploaded_at ? ` le ${new Date(entry.final_uploaded_at).toLocaleDateString('fr-FR')}` : ''}</p>
-              : <p className="text-xs text-orange-700">Reste à faire : pas encore de fichier final 9:16. {preview ? 'Aperçu : épisode PAD 4:3 (à télécharger sur la page PAD).' : ''}</p>}
+              : finalUrl
+              ? <p className="text-xs text-gray-600">9:16 de l'épisode (page Épisodes) : {byId[entry.pad_ids[0]]?.vertical_name}</p>
+              : <p className="text-xs text-orange-700">Reste à faire : pas encore de 9:16 pour cet épisode (à déposer sur la page Épisodes). {preview ? 'Aperçu : épisode 4:3.' : ''}</p>}
             {!isStory && <input ref={fileInput} type="file" accept="video/*" className="hidden" onChange={ev => { onUpload(ev.target.files[0]); ev.target.value = '' }} />}
             {!isStory && <button onClick={() => fileInput.current.click()} disabled={locked || uploading}
               className="mt-2 bg-gray-900 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-40">
-              {uploading ? 'Envoi en cours…' : entry.final_url ? 'Remplacer le fichier final' : 'Déposer le fichier final'}
+              {uploading ? 'Envoi en cours…' : entry.final_url ? 'Remplacer le fichier final' : 'Déposer un fichier propre à cette publication'}
             </button>}
           </section>
 

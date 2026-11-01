@@ -41,10 +41,10 @@ Both are `'use client'` single-component files. All logic, state, and JSX live i
 | `shared_files` | `id`, `name`, `file_url`, `file_type`, `uploaded_by` |
 | `users` | `id`, `name`, `password` (plain text) |
 | `user_profiles` | `username` (PK), `email`, `notify_weekly`, `updated_at` |
-| `pad_videos` | `id`, `number` (unique, = DaVinci #NN), `name` (`#NN_SKROLL_<archives>_<titre>`), `title`, `archives` (text[]), `file_url`, `file_name`, `file_size`, `duration_s`, `bertrand_ok` / `sebastien_ok` / `pierreemmanuel_ok` (`null \| 'ok' \| 'retouche'`), `note` |
+| `pad_videos` | `id`, `number` (unique, = DaVinci #NN), `name` (`#NN_SKROLL_<archives>_<titre>`), `title`, `archives` (text[]), `file_url`, `file_name`, `file_size`, `duration_s`, `bertrand_ok` / `sebastien_ok` / `pierreemmanuel_ok` (`null \| 'ok' \| 'retouche'`), `status` (`null \| 'modif' \| 'pad'`), `note`, `thumb_url`, `vertical_url` / `vertical_name` / `vertical_uploaded_at` / `vertical_uploaded_by` (the episode's 9:16, used by its reels in the planning unless the post has its own `final_url`) |
 | `broadcast_schedule` | `day`, `post_time`, `format`, `networks`, `pad_ids` (uuid[] → `pad_videos`; `video_ids` is the old link to `videos`, no longer read), `parent_id` (story → its reel), `caption`, `title`, `final_url` / `final_name` (9:16 file), `metricool_status` |
 
-**Storage buckets:** `Videos` (capital V) for video files (PAD episodes under `pad/`, 9:16 finals under `diffusion/`; anon can insert but not overwrite, so a new render gets a new path), `files` for audio tracks and shared files.
+**Storage buckets:** `Videos` (capital V) for video files (PAD episodes under `pad/` in 4:3 1440×1080, their 9:16 under `pad/916/`, 9:16 finals under `diffusion/`; anon can insert but not overwrite, so a new render gets a new path), `files` for audio tracks and shared files.
 
 **Since 2026-10-31 DaVinci is the source of truth for episodes:** the PAD catalogue (`pad_videos`) is generated from the DaVinci exports (mixed + dressed), the old `videos` table and its votes describe superseded work-in-progress versions.
 
