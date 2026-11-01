@@ -22,6 +22,7 @@ No linter, no test suite configured.
 - `app/video/[id]/page.js` — video detail page (old work-in-progress videos)
 - `app/pad/page.js` — PAD catalogue (`pad_videos`): final validation per person, schedule status, download for the 9:16 versions
 - `app/diffusion/page.js` — broadcast calendar (`broadcast_schedule`), fed by `pad_videos`
+- `app/stats/page.js` — audience of the public home (views `stats_jours`, `stats_episodes`, `stats_sources` over `site_events`)
 - `app/retroplanning/page.js`
 
 Both are `'use client'` single-component files. All logic, state, and JSX live in one large component per route. There are no shared components, hooks, or context — everything is self-contained per file.
@@ -43,6 +44,7 @@ Both are `'use client'` single-component files. All logic, state, and JSX live i
 | `users` | `id`, `name`, `password` (plain text) |
 | `user_profiles` | `username` (PK), `email`, `notify_weekly`, `updated_at` |
 | `pad_videos` | `id`, `number` (unique, = DaVinci #NN), `name` (`#NN_SKROLL_<archives>_<titre>`), `title`, `archives` (text[]), `file_url`, `file_name`, `file_size`, `duration_s`, `bertrand_ok` / `sebastien_ok` / `pierreemmanuel_ok` (`null \| 'ok' \| 'retouche'`), `status` (`null \| 'modif' \| 'pad'`), `note`, `thumb_url`, `vertical_url` / `vertical_name` / `vertical_uploaded_at` / `vertical_uploaded_by` (the episode's 9:16, used by its reels in the planning unless the post has its own `final_url`) |
+| `site_events` | `at`, `kind` (`'visite' \| 'vue'`), `pad_id`, `visit` (random id per tab, no cookie), `device`, `source` (`'fil' \| 'mosaique'`), `referrer` (host). Written anonymously by the home page (anon insert only); team browsers (`skroll_user` set) are not counted; a view = 3 s of playback, once per visit |
 | `broadcast_schedule` | `day`, `post_time`, `format`, `networks`, `pad_ids` (uuid[] → `pad_videos`; `video_ids` is the old link to `videos`, no longer read), `parent_id` (story → its reel), `caption`, `title`, `final_url` / `final_name` (9:16 file), `metricool_status` |
 
 **Storage buckets:** `Videos` (capital V) for video files (PAD episodes under `pad/` in 4:3 1440×1080, their 9:16 under `pad/916/`, 9:16 finals under `diffusion/`; anon can insert but not overwrite, so a new render gets a new path), `files` for audio tracks and shared files.

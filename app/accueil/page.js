@@ -46,6 +46,28 @@ function longDate(day) {
 }
 
 // no episode titles on the public page: they would give the joke away
+// Audience, anonymous (no cookie): one random id per browser tab, stored in site_events; read on /stats.
+// Browsers logged in to the team workspace are not counted.
+let visit = null
+const counted = new Set()
+function track(kind, padId, source) {
+  if (typeof window === 'undefined' || localStorage.getItem('skroll_user')) return
+  if (!visit) {
+    try { visit = sessionStorage.getItem('skroll_visit') } catch {}
+    if (!visit) { visit = Math.random().toString(36).slice(2, 12); try { sessionStorage.setItem('skroll_visit', visit) } catch {} }
+  }
+  let referrer = null
+  try { const h = new URL(document.referrer).hostname.replace(/^(www|m|l|lm)\./, ''); if (!h.endsWith('skroll.tv')) referrer = h.slice(0, 120) } catch {}
+  supabase.from('site_events').insert({ kind, pad_id: padId || null, visit, device: window.matchMedia('(max-width: 767px)').matches ? 'phone' : 'desktop', source, referrer }).then(() => {})
+}
+// an episode counts as viewed after 3 s of playback (or almost all of it for the very short ones), once per visit
+function watched(e, v, source) {
+  const el = e.target
+  if (counted.has(v.id) || el.currentTime < Math.min(3, (el.duration || 3) * 0.9)) return
+  counted.add(v.id)
+  track('vue', v.id, source)
+}
+
 function num(v) {
   return `#${String(v.number).padStart(2, '0')}`
 }
@@ -88,6 +110,7 @@ export default function Accueil() {
     // the pink team bar only shows when opened from the workspace (skroll.tv/?modifier)
     if (new URLSearchParams(location.search).has('modifier')) setUser(saved)
     setReady(true)
+    track('visite', null, null)
     Promise.all([
       supabase.from('site_content').select('key,value'),
       supabase.from('pad_videos').select('id,number,file_url,vertical_url,thumb_url,status').order('number'),
@@ -224,8 +247,8 @@ export default function Accueil() {
         <div role="dialog" aria-modal="true" aria-label={`Épisode ${num(playing)}`} className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4" onClick={() => setPlaying(null)}>
           <div className="w-full max-w-4xl" style={{ maxWidth: 'min(56rem, 106vh)' }} onClick={e => e.stopPropagation()}>
             {phone && playing.vertical_url
-              ? <video src={playing.vertical_url} controls autoPlay playsInline className="w-full max-h-[80svh] aspect-[9/16] bg-black" />
-              : <video src={playing.file_url} controls autoPlay playsInline className="w-full aspect-[4/3] bg-black" />}
+              ? <video src={playing.vertical_url} controls autoPlay playsInline onTimeUpdate={e => watched(e, playing, 'mosaique')} className="w-full max-h-[80svh] aspect-[9/16] bg-black" />
+              : <video src={playing.file_url} controls autoPlay playsInline onTimeUpdate={e => watched(e, playing, 'mosaique')} className="w-full aspect-[4/3] bg-black" />}
             <div className="flex items-center justify-between mt-2">
               <p className="text-lg font-semibold">{num(playing)}{playing.day && <span className="font-normal" style={{ color: C.amber }}> · diffusé le {longDate(playing.day)}</span>}</p>
               <button onClick={() => setPlaying(null)} className="underline">Fermer</button>
@@ -316,7 +339,7 @@ function Feed({ items, phone, random, onRandom, onOrdered }) {
               {Math.abs(i - current) <= 1
                 ? <video ref={el => (vids.current[i] = el)} src={phone && v.vertical_url ? v.vertical_url : v.file_url} poster={v.thumb_url || undefined} muted={muted} playsInline preload="auto"
                     onClick={e => (e.target.paused ? e.target.play() : e.target.pause())}
-                    onTimeUpdate={e => i === current && setProgress(e.target.currentTime / (e.target.duration || 1))}
+                    onTimeUpdate={e => { if (i !== current) return; setProgress(e.target.currentTime / (e.target.duration || 1)); watched(e, v, 'fil') }}
                     onEnded={() => go(i + 1)}
                     className="h-full w-full object-contain cursor-pointer" />
                 : v.thumb_url ? <img src={v.thumb_url} alt="" className="h-full w-full object-contain" /> : null}

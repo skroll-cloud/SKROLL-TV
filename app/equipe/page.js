@@ -66,9 +66,10 @@ const NAV_ITEMS = [
   { id: 'diffusion', label: 'Planning de diffusion' },
   { id: 'ideas', label: 'Idées' },
   { id: 'contacts', label: 'Contacts' },
+  { id: 'stats', label: 'Statistiques du site' },
   { id: '?modifier', label: "Page d'accueil (modifier)" },
 ]
-const NAV_ROUTES = ['pad', 'diffusion', '?modifier']
+const NAV_ROUTES = ['pad', 'diffusion', 'stats', '?modifier']
 
 export default function Home() {
   const router = useRouter()
