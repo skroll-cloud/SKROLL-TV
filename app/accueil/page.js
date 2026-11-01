@@ -115,7 +115,6 @@ export default function Accueil() {
   // newest day first; inside a day, the order chosen for the home page (home_rank), else latest post first
   const tiles = shorts.filter(e => broadcastDone(e, cutoff) && byId[e.pad_ids[0]]).map((e, i) => ({ ...byId[e.pad_ids[0]], day: e.day, rank: e.home_rank, i }))
     .sort((a, b) => b.day.localeCompare(a.day) || (a.rank ?? 1e6) - (b.rank ?? 1e6) || b.i - a.i)
-  const next = shorts.find(e => !broadcastDone(e, cutoff))
   const latest = tiles[0]
   const feed = tiles.slice(0, 9)
   // "Aléatoire" (only once 30 episodes are out) draws 9 among all the aired ones, a new draw at each click
@@ -146,9 +145,7 @@ export default function Accueil() {
 
       <section className="max-w-3xl mx-auto px-4 pt-10 pb-12 text-center">
         <Text k="accroche" className="text-xl md:text-2xl leading-relaxed" rows={4} />
-        <p className="mt-6 text-base" style={{ color: C.amber }}>
-          {next ? `Prochain épisode le ${longDate(next.day)} à ${next.post_time.replace(':', ' h ')}` : 'Les épisodes arrivent bientôt.'}
-        </p>
+        <p className="mt-6 text-lg md:text-xl" style={{ color: C.amber }}>Un nouvel épisode chaque soir à 18 h 30.</p>
         <Socials size={30} className="mt-5 justify-center" color={C.neon} bg={C.film} />
       </section>
 
