@@ -15,6 +15,28 @@ const font = Bricolage_Grotesque({ subsets: ['latin'], weight: ['400', '600', '8
 // The feed shows the 9 latest shorts already broadcast (broadcast_schedule, day + post time Paris passed), the mosaic all of them;
 // "Aperçu" counts everything planned up to tonight as broadcast. Phones get the 9:16 versions, computers the 4:3.
 const C = { film: '#1A0E17', neon: '#FF2E9A', tube: '#FFD3EC', amber: '#F0A957', paper: '#FBEAF2', ink: '#2A1424' }
+const SOCIALS = [
+  { name: 'Instagram', url: 'https://www.instagram.com/skroll_tv/', icon: <><rect x="3" y="3" width="18" height="18" rx="5" fill="none" stroke="currentColor" strokeWidth="2" /><circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" strokeWidth="2" /><circle cx="17.5" cy="6.5" r="1.3" fill="currentColor" /></> },
+  { name: 'TikTok', url: 'https://www.tiktok.com/@skroll_tv', icon: <path fill="currentColor" d="M16.6 3c.4 2.4 1.9 3.9 4.4 4.1v3.4c-1.6 0-3.1-.5-4.4-1.3v6.3a6 6 0 1 1-6-6v3.4a2.6 2.6 0 1 0 2.6 2.6V3h3.4z" /> },
+  { name: 'YouTube', url: 'https://www.youtube.com/@skroll_tv', icon: <><rect x="2" y="5" width="20" height="14" rx="4" fill="currentColor" /><path d="M10 9l5 3-5 3z" fill="var(--social-bg)" /></> },
+  { name: 'Facebook', url: 'https://www.facebook.com/61596024961357/', icon: <path fill="currentColor" d="M13.5 22v-8h2.7l.4-3.2h-3.1V8.8c0-.9.3-1.6 1.6-1.6h1.7V4.3c-.3 0-1.3-.1-2.5-.1-2.5 0-4.2 1.5-4.2 4.3v2.3H7.3V14h2.8v8h3.4z" /> },
+]
+
+function Socials({ size = 28, className = '', color, bg }) {
+  return (
+    <ul className={`flex gap-4 ${className}`} style={{ color, '--social-bg': bg }}>
+      {SOCIALS.map(n => (
+        <li key={n.name}>
+          <a href={n.url} target="_blank" rel="noopener noreferrer" aria-label={`SKROLL sur ${n.name}`} title={n.name}
+            className="block transition-transform hover:scale-110 focus:outline-none focus-visible:ring-2 rounded" style={{ color: 'inherit' }}>
+            <svg viewBox="0 0 24 24" width={size} height={size} aria-hidden>{n.icon}</svg>
+          </a>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
 const MONTHS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre']
 
 function longDate(day) {
@@ -127,6 +149,7 @@ export default function Accueil() {
         <p className="mt-6 text-base" style={{ color: C.amber }}>
           {next ? `Prochain épisode le ${longDate(next.day)} à ${next.post_time.replace(':', ' h ')}` : 'Les épisodes arrivent bientôt.'}
         </p>
+        <Socials size={30} className="mt-5 justify-center" color={C.neon} bg={C.film} />
       </section>
 
       {latest && (
@@ -175,6 +198,7 @@ export default function Accueil() {
               : <ul className="space-y-3">{(texts.partenaires || '').split('\n').filter(Boolean).map(p => <li key={p} className="text-xl font-semibold border-b-2 pb-2" style={{ borderColor: C.tube }}>{p}</li>)}</ul>}
             <h2 className="text-3xl font-extrabold mt-10 mb-3" style={{ color: C.neon }}>Suivre SKROLL</h2>
             <Text k="reseaux" className="leading-relaxed" rows={3} />
+            <Socials size={34} className="mt-4" color={C.ink} bg={C.paper} />
           </div>
         </div>
       </section>
