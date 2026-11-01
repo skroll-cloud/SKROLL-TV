@@ -144,14 +144,16 @@ export default function Accueil() {
       </div>}
 
       <header>
-        {/* image HD sans baseline (logo néon net) ; la baseline est du vrai texte, nette à toutes les tailles */}
-        <div className="relative">
-          <img src="/banniere-skroll-hd.jpg" srcSet="/banniere-skroll-1600.jpg 1600w, /banniere-skroll-hd.jpg 3200w" sizes="100vw"
-            alt="" width="3200" height="1455" className="block w-full h-auto" />
-          <h1 className={`${baselineFont.className} absolute inset-x-0 text-center text-white leading-none`}
-            style={{ top: '65.5%', fontSize: 'max(3.3vw, 12px)', textShadow: '0 0 0.4em rgba(0,0,0,.45)' }}>
-            <span className="sr-only">SKROLL : </span>Des images vraies, des histoires fausses
-          </h1>
+        {/* bannière d'origine, baseline effacée de l'image et réécrite en vrai texte (nette à toutes les tailles) ;
+            sur téléphone l'image est recadrée sur les côtés, le texte suit car il est placé en unités du cadre (cqw) */}
+        <div className="relative overflow-hidden h-[58vw] md:h-auto">
+          <div className="absolute left-1/2 -translate-x-1/2 h-full aspect-[2059/764] md:static md:translate-x-0 md:w-full md:h-auto" style={{ containerType: 'inline-size' }}>
+            <img src="/banniere-skroll-sans-baseline.jpg" alt="" width="2059" height="764" className="block w-full h-full" />
+            <h1 className={`${baselineFont.className} absolute right-0 text-center text-white leading-none whitespace-nowrap`}
+              style={{ top: '67.6%', left: '0.48%', fontSize: '2.41cqw' }}>
+              <span className="sr-only">SKROLL : </span>Des images vraies, des histoires fausses
+            </h1>
+          </div>
         </div>
       </header>
 
