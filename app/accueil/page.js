@@ -180,13 +180,14 @@ export default function Accueil() {
 }
 
 // Player central en défilement vertical, comme un fil Instagram : une vidéo par écran (scroll-snap),
-// celle qui est à l'écran joue, et à la fin la suivante monte par le bas. Le son se coupe par défaut
-// (les navigateurs bloquent la lecture automatique avec le son) ; une fois activé, il reste actif pour les suivantes.
+// celle qui est à l'écran joue, et à la fin la suivante monte par le bas. Le son est actif par défaut ; si le navigateur
+// refuse la lecture automatique avec le son (avant tout clic sur la page), on joue sans le son et on le rétablit au premier geste.
 function Feed({ items, phone }) {
   const box = useRef(null)
   const vids = useRef([])
   const [current, setCurrent] = useState(0)
-  const [muted, setMuted] = useState(true)
+  const [muted, setMuted] = useState(false)
+  const [full, setFull] = useState(false)
   const [progress, setProgress] = useState(0)
 
   // the episode on screen is the one the scroll snapped to
@@ -202,13 +203,42 @@ function Feed({ items, phone }) {
   useEffect(() => {
     vids.current.forEach((v, i) => {
       if (!v) return
-      if (i === current) { v.currentTime = 0; v.play().catch(() => {}) } else v.pause()
+      if (i !== current) { v.pause(); return }
+      v.currentTime = 0
+      v.play().catch(() => { v.muted = true; setMuted(true); v.play().catch(() => {}) })
     })
     setProgress(0)
   }, [current, ids])
 
+  // muted only because autoplay with sound was refused: the first tap or key on the page brings the sound back
+  useEffect(() => {
+    if (!muted) return
+    const unmute = () => setMuted(false)
+    window.addEventListener('pointerdown', unmute, { once: true })
+    window.addEventListener('keydown', unmute, { once: true })
+    return () => { window.removeEventListener('pointerdown', unmute); window.removeEventListener('keydown', unmute) }
+  }, [muted])
+
+  useEffect(() => {
+    const on = () => {
+      setFull(document.fullscreenElement === wrap.current)
+      requestAnimationFrame(() => box.current && (box.current.scrollTop = current * box.current.clientHeight))
+    }
+    document.addEventListener('fullscreenchange', on)
+    return () => document.removeEventListener('fullscreenchange', on)
+  }, [current])
+
+  const wrap = useRef(null)
+  function toggleFull() {
+    if (document.fullscreenElement) return document.exitFullscreen()
+    if (wrap.current.requestFullscreen) return wrap.current.requestFullscreen()
+    vids.current[current]?.webkitEnterFullscreen?.()   // iPhone : seule la vidéo peut passer en plein écran
+  }
+
   function go(i) {
     const n = (i + items.length) % items.length
+    const v = vids.current[current]
+    if (n === current) { if (v) { v.currentTime = 0; v.play().catch(() => {}) } return }   // un seul épisode : il reboucle
     box.current.scrollTo({ top: n * box.current.clientHeight, behavior: 'smooth' })
   }
 
@@ -220,9 +250,9 @@ function Feed({ items, phone }) {
 
   return (
     <div>
-      <div className={`relative ${phone ? '-mx-4' : ''}`}>
+      <div ref={wrap} className={`relative bg-black ${phone ? '-mx-4' : ''}`}>
         <div ref={box} tabIndex={0} onKeyDown={onKey} onScroll={onScroll} aria-label="Épisodes, flèches haut et bas pour changer"
-          className={`${phone ? 'h-[85svh]' : 'aspect-[4/3]'} w-full overflow-y-scroll snap-y snap-mandatory bg-black rounded-sm focus:outline-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden`}>
+          className={`${full ? 'h-screen' : phone ? 'h-[85svh]' : 'aspect-[4/3]'} w-full overflow-y-scroll snap-y snap-mandatory bg-black rounded-sm focus:outline-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden`}>
           {items.map((v, i) => (
             <div key={v.id + (v.day || '')} data-i={i} className="relative h-full w-full snap-start snap-always">
               {Math.abs(i - current) <= 1
@@ -242,10 +272,20 @@ function Feed({ items, phone }) {
         <div className="absolute left-0 right-0 bottom-0 h-0.5 pointer-events-none" style={{ background: 'rgba(255,255,255,.15)' }}>
           <div className="h-full" style={{ width: `${progress * 100}%`, background: C.neon }} />
         </div>
-        <button onClick={() => setMuted(m => !m)} className="absolute top-3 right-3 rounded-full px-3 py-1 text-sm font-semibold" style={{ background: 'rgba(0,0,0,.6)', color: C.tube }}>
-          {muted ? 'Activer le son' : 'Couper le son'}
-        </button>
-        <div className="absolute top-1/2 -translate-y-1/2 -right-1 md:-right-12 hidden sm:flex flex-col gap-2">
+        <div className="absolute top-3 right-3 flex gap-2">
+          <button onClick={e => { e.stopPropagation(); setMuted(m => !m) }} className="rounded-full px-3 py-1 text-sm font-semibold" style={{ background: 'rgba(0,0,0,.6)', color: C.tube }}>
+            {muted ? 'Activer le son' : 'Couper le son'}
+          </button>
+          <button onClick={toggleFull} aria-label={full ? 'Quitter le plein écran' : 'Plein écran'} title={full ? 'Quitter le plein écran' : 'Plein écran'}
+            className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: 'rgba(0,0,0,.6)', color: C.tube }}>
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              {full
+                ? <path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" />
+                : <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />}
+            </svg>
+          </button>
+        </div>
+        <div className={`absolute top-1/2 -translate-y-1/2 ${full ? 'right-4' : '-right-1 md:-right-12'} hidden sm:flex flex-col gap-2`}>
           <button onClick={() => go(current - 1)} aria-label="Épisode précédent" className="w-9 h-9 rounded-full font-bold" style={{ background: C.tube, color: C.film }}>↑</button>
           <button onClick={() => go(current + 1)} aria-label="Épisode suivant" className="w-9 h-9 rounded-full font-bold" style={{ background: C.neon, color: C.film }}>↓</button>
         </div>
