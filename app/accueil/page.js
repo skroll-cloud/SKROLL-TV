@@ -52,7 +52,7 @@ export default function Accueil() {
     Promise.all([
       supabase.from('site_content').select('key,value'),
       supabase.from('pad_videos').select('id,number,title,file_url,vertical_url,thumb_url,status').order('number'),
-      supabase.from('broadcast_schedule').select('day,post_time,pad_ids').eq('format', 'short').order('day').order('post_time').order('created_at'),
+      supabase.from('broadcast_schedule').select('day,post_time,pad_ids,home_rank').eq('format', 'short').order('day').order('post_time').order('created_at'),
     ]).then(([t, v, s]) => {
       if (t.data) setTexts(Object.fromEntries(t.data.map(r => [r.key, r.value])))
       if (v.data) setVideos(v.data)
@@ -78,7 +78,9 @@ export default function Accueil() {
   const now = new Date()
   // preview: as if it were tonight after the last post of the day
   const cutoff = preview ? new Date(`${now.toLocaleDateString('sv-SE', { timeZone: 'Europe/Paris' })}T23:59:00+01:00`) : now
-  const tiles = shorts.filter(e => broadcastDone(e, cutoff) && byId[e.pad_ids[0]]).map(e => ({ ...byId[e.pad_ids[0]], day: e.day })).reverse()
+  // newest day first; inside a day, the order chosen for the home page (home_rank), else latest post first
+  const tiles = shorts.filter(e => broadcastDone(e, cutoff) && byId[e.pad_ids[0]]).map((e, i) => ({ ...byId[e.pad_ids[0]], day: e.day, rank: e.home_rank, i }))
+    .sort((a, b) => b.day.localeCompare(a.day) || (a.rank ?? 1e6) - (b.rank ?? 1e6) || b.i - a.i)
   const next = shorts.find(e => !broadcastDone(e, cutoff))
   const latest = tiles[0]
 
