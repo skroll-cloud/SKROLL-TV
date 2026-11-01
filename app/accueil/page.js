@@ -144,13 +144,13 @@ export default function Accueil() {
       </div>}
 
       <header>
-        {/* bannière d'origine, baseline effacée de l'image et réécrite en vrai texte (nette à toutes les tailles) ;
+        {/* bannière d'origine en 2x, néon du logo refait en HD (rendu doux de neon_hq.py), baseline effacée et réécrite en vrai texte ;
             sur téléphone l'image est recadrée sur les côtés, le texte suit car il est placé en unités du cadre (cqw) */}
         <div className="relative overflow-hidden h-[58vw] md:h-auto">
           <div className="absolute left-1/2 -translate-x-1/2 h-full aspect-[2059/764] md:static md:translate-x-0 md:w-full md:h-auto" style={{ containerType: 'inline-size' }}>
-            <img src="/banniere-skroll-sans-baseline.jpg" alt="" width="2059" height="764" className="block w-full h-full" />
+            <img src="/banniere-skroll-neon.jpg" alt="" width="4118" height="1528" className="block w-full h-full" />
             <h1 className={`${baselineFont.className} absolute right-0 text-center text-white leading-none whitespace-nowrap`}
-              style={{ top: '67.6%', left: '0.48%', fontSize: '2.41cqw' }}>
+              style={{ top: '67.6%', left: '0.48%', fontSize: '2.41cqw', textShadow: '0 0 0.35em rgba(255, 46, 154, 0.55)' }}>
               <span className="sr-only">SKROLL : </span>Des images vraies, des histoires fausses
             </h1>
           </div>
