@@ -66,7 +66,7 @@ const NAV_ITEMS = [
   { id: 'diffusion', label: 'Planning de diffusion' },
   { id: 'ideas', label: 'Idées' },
   { id: 'contacts', label: 'Contacts' },
-  { id: 'stats', label: 'Statistiques du site' },
+  { id: 'stats', label: 'Statistiques' },
   { id: '?modifier', label: "Page d'accueil (modifier)" },
 ]
 const NAV_ROUTES = ['pad', 'diffusion', 'stats', '?modifier']
