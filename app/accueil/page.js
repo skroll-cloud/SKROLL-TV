@@ -22,6 +22,11 @@ function longDate(day) {
   return `${d}${d === 1 ? 'er' : ''} ${MONTHS[m - 1]}`
 }
 
+// no episode titles on the public page: they would give the joke away
+function num(v) {
+  return `#${String(v.number).padStart(2, '0')}`
+}
+
 function broadcastDone(e, now) {
   const at = new Date(`${e.day}T${e.post_time || '18:30'}:00+01:00`)
   return at <= now
@@ -51,7 +56,7 @@ export default function Accueil() {
     setUser(saved)
     Promise.all([
       supabase.from('site_content').select('key,value'),
-      supabase.from('pad_videos').select('id,number,title,file_url,vertical_url,thumb_url,status').order('number'),
+      supabase.from('pad_videos').select('id,number,file_url,vertical_url,thumb_url,status').order('number'),
       supabase.from('broadcast_schedule').select('day,post_time,pad_ids,home_rank').eq('format', 'short').order('day').order('post_time').order('created_at'),
     ]).then(([t, v, s]) => {
       if (t.data) setTexts(Object.fromEntries(t.data.map(r => [r.key, r.value])))
@@ -137,8 +142,7 @@ export default function Accueil() {
                       ? <img src={v.thumb_url} alt="" loading="lazy" className="w-full h-full object-cover opacity-90 group-hover:opacity-100" />
                       : <video src={`${v.file_url}#t=3`} preload="metadata" muted playsInline className="w-full h-full object-cover" />}
                   </span>
-                  <span className="block mt-1 text-sm leading-tight group-hover:underline">{v.title}</span>
-                  {v.day && <span className="block text-xs" style={{ color: C.amber }}>{longDate(v.day)}</span>}
+                  <span className="block mt-1 text-sm leading-tight group-hover:underline">{num(v)}{v.day && <span style={{ color: C.amber }}> · {longDate(v.day)}</span>}</span>
                 </button>
               </li>
             ))}
@@ -165,13 +169,13 @@ export default function Accueil() {
       </section>
 
       {playing && (
-        <div role="dialog" aria-modal="true" aria-label={playing.title} className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4" onClick={() => setPlaying(null)}>
+        <div role="dialog" aria-modal="true" aria-label={`Épisode ${num(playing)}`} className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4" onClick={() => setPlaying(null)}>
           <div className="w-full max-w-4xl" style={{ maxWidth: 'min(56rem, 106vh)' }} onClick={e => e.stopPropagation()}>
             {phone && playing.vertical_url
               ? <video src={playing.vertical_url} controls autoPlay playsInline className="w-full max-h-[80svh] aspect-[9/16] bg-black" />
               : <video src={playing.file_url} controls autoPlay playsInline className="w-full aspect-[4/3] bg-black" />}
             <div className="flex items-center justify-between mt-2">
-              <p className="text-lg font-semibold">{playing.title}</p>
+              <p className="text-lg font-semibold">{num(playing)}{playing.day && <span className="font-normal" style={{ color: C.amber }}> · diffusé le {longDate(playing.day)}</span>}</p>
               <button onClick={() => setPlaying(null)} className="underline">Fermer</button>
             </div>
           </div>
@@ -265,8 +269,7 @@ function Feed({ items, phone }) {
                     className="h-full w-full object-contain cursor-pointer" />
                 : v.thumb_url ? <img src={v.thumb_url} alt="" className="h-full w-full object-contain" /> : null}
               <div className="pointer-events-none absolute inset-x-0 bottom-0 p-3 md:p-4" style={{ background: 'linear-gradient(transparent, rgba(0,0,0,.75))' }}>
-                <p className="text-lg md:text-xl font-semibold text-white">{v.title}</p>
-                {v.day && <p className="text-sm" style={{ color: C.amber }}>Diffusé le {longDate(v.day)}</p>}
+                <p className="text-lg md:text-xl font-semibold text-white">{num(v)}{v.day && <span className="text-sm font-normal" style={{ color: C.amber }}> · diffusé le {longDate(v.day)}</span>}</p>
               </div>
             </div>
           ))}

@@ -81,9 +81,9 @@ function shortName(v) {
   return v.title.replace(/ 1$/, '')
 }
 
+// no episode title in the posts: it would give the joke away
 function defaultCaption(v) {
-  const name = shortName(v).replace(/^./, c => c.toUpperCase())
-  return `${name}\n\nArchives Cinémathèque de Bretagne${v.archives.length ? ` (n° ${v.archives.join(', ')})` : ''}. 100 % archives, 0 % IA.\n\n#skroll #bretagne #archives #humour`
+  return `Archives Cinémathèque de Bretagne${v.archives.length ? ` (n° ${v.archives.join(', ')})` : ''}. 100 % archives, 0 % IA.\n\n#skroll #bretagne #archives #humour`
 }
 
 function readList(key, fallback) {
@@ -516,9 +516,9 @@ function Editor({ entry, finalUrl, parent, locked, pickable, byId, uploading, na
 
           <section>
             <label className="text-sm font-semibold text-gray-900">Titre {entry.format === 'short' && <span className="font-normal text-gray-500">(facultatif)</span>}
-              <BlurInput value={entry.title || ''} disabled={locked} placeholder={name} onSave={title => onChange({ title })} className={`${field} mt-1 font-normal`} />
+              <BlurInput value={entry.title || ''} disabled={locked} placeholder="SKROLL #NN" onSave={title => onChange({ title })} className={`${field} mt-1 font-normal`} />
             </label>
-            <p className="text-xs text-gray-500 mt-1">Sert de titre YouTube.</p>
+            <p className="text-xs text-gray-500 mt-1">Titre YouTube. Laissé vide : « SKROLL #NN », sans le titre de l'épisode pour ne rien dévoiler.</p>
           </section>
 
           <section>
