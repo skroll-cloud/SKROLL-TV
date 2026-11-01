@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
+import { LAUNCH } from '../lib/launch'
 import { createClient } from '@supabase/supabase-js'
 import { normalizeTitle, displayTitle } from '../lib/videoName.mjs'
 
@@ -156,6 +157,8 @@ export default function Home() {
   useEffect(() => {
     const saved = localStorage.getItem('skroll_user')
     if (saved) setCurrentUser(saved)
+    // after the launch, visitors land on the public home page; the team logs in from /?equipe
+    else if (new Date() >= LAUNCH && !new URLSearchParams(location.search).has('equipe')) { router.replace('/accueil'); return }
     const savedSection = localStorage.getItem('skroll_section')
     if (savedSection && NAV_ITEMS.some(i => i.id === savedSection)) {
       setCurrentSection(savedSection)

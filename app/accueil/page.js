@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@supabase/supabase-js'
 import { Bricolage_Grotesque } from 'next/font/google'
+import { LAUNCH } from '../../lib/launch'
 
 const supabase = createClient(
   'https://riotdlbdywxuouvdgqpt.supabase.co',
@@ -11,7 +12,7 @@ const supabase = createClient(
 )
 const font = Bricolage_Grotesque({ subsets: ['latin'], weight: ['400', '600', '800'] })
 
-// Future public home page. For now it is only shown to the team (logged in), with its texts editable in place (table site_content).
+// Public home page from LAUNCH on (before that, team only). Logged-in team members get the pink bar: preview and texts editable in place (table site_content).
 // The feed shows the 9 latest shorts already broadcast (broadcast_schedule, day + post time Paris passed), the mosaic all of them;
 // "Aperçu" counts everything planned up to tonight as broadcast. Phones get the 9:16 versions, computers the 4:3.
 const C = { film: '#1A0E17', neon: '#FF2E9A', tube: '#FFD3EC', amber: '#F0A957', paper: '#FBEAF2', ink: '#2A1424' }
@@ -63,6 +64,7 @@ function broadcastDone(e, now) {
 export default function Accueil() {
   const router = useRouter()
   const [user, setUser] = useState(null)
+  const [ready, setReady] = useState(false)
   const [texts, setTexts] = useState({})
   const [videos, setVideos] = useState([])
   const [shorts, setShorts] = useState([])
@@ -81,8 +83,9 @@ export default function Accueil() {
 
   useEffect(() => {
     const saved = localStorage.getItem('skroll_user')
-    if (!saved) { router.push('/'); return }
+    if (!saved && new Date() < LAUNCH) { router.push('/'); return }
     setUser(saved)
+    setReady(true)
     Promise.all([
       supabase.from('site_content').select('key,value'),
       supabase.from('pad_videos').select('id,number,file_url,vertical_url,thumb_url,status').order('number'),
@@ -106,7 +109,7 @@ export default function Accueil() {
     await supabase.from('site_content').upsert({ key, value, updated_at: new Date().toISOString(), updated_by: user })
   }
 
-  if (!user) return null
+  if (!ready) return null
 
   const byId = Object.fromEntries(videos.map(v => [v.id, v]))
   const now = new Date()
@@ -128,7 +131,7 @@ export default function Accueil() {
 
   return (
     <div className={font.className} style={{ background: C.film, color: C.tube }}>
-      <div className="sticky top-0 z-40 flex flex-wrap items-center gap-3 px-4 py-2 text-sm" style={{ background: C.neon, color: C.film }}>
+      {user && <div className="sticky top-0 z-40 flex flex-wrap items-center gap-3 px-4 py-2 text-sm" style={{ background: C.neon, color: C.film }}>
         <span className="font-semibold flex-1 min-w-[200px]">Aperçu privé : cette page n'est visible que par l'équipe.</span>
         <button onClick={() => setPreview(p => !p)} className="rounded-full border-2 px-3 py-0.5 font-semibold" style={{ borderColor: C.film }}>
           {preview ? 'Voir seulement les épisodes déjà diffusés' : 'Aperçu de ce soir (tout ce qui est programmé aujourd\'hui)'}
@@ -137,7 +140,7 @@ export default function Accueil() {
           {editing ? 'Terminer la modification' : 'Modifier les textes'}
         </button>
         <button onClick={() => router.push('/')} className="underline">Espace de travail</button>
-      </div>
+      </div>}
 
       <header>
         <img src="/banniere-skroll.jpg" alt="SKROLL, des images vraies, des histoires fausses" className="w-full h-[58vw] md:h-auto object-cover" />
@@ -199,6 +202,11 @@ export default function Accueil() {
           </div>
         </div>
       </section>
+
+      <footer className="px-4 py-6 text-center text-xs" style={{ background: C.film, color: C.tube }}>
+        <span className="opacity-60">SKROLL · des images vraies, des histoires fausses · </span>
+        <a href="/?equipe" className="opacity-40 hover:opacity-80 underline">Espace équipe</a>
+      </footer>
 
       {playing && (
         <div role="dialog" aria-modal="true" aria-label={`Épisode ${num(playing)}`} className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4" onClick={() => setPlaying(null)}>
