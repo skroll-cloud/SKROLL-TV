@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@supabase/supabase-js'
 import { Bricolage_Grotesque } from 'next/font/google'
@@ -106,9 +106,9 @@ export default function Accueil() {
 
       {latest && (
         <section className="max-w-3xl mx-auto px-4 pb-14">
-          <h2 className="text-2xl md:text-3xl font-extrabold mb-4" style={{ color: C.neon }}>Le dernier épisode</h2>
-          <video key={latest.file_url} src={latest.file_url} poster={latest.thumb_url || undefined} controls playsInline preload="metadata" className="w-full aspect-[4/3] bg-black rounded-sm" />
-          <p className="mt-2 text-lg font-semibold">{latest.title}{latest.day ? <span style={{ color: C.amber }} className="font-normal"> , diffusé le {longDate(latest.day)}</span> : ''}</p>
+          <h2 className="text-2xl md:text-3xl font-extrabold mb-1" style={{ color: C.neon }}>Les épisodes</h2>
+          <p className="mb-4 text-sm" style={{ color: C.amber }}>Du plus récent au plus ancien. Faites défiler vers le haut, ou laissez-les s'enchaîner.</p>
+          <Feed items={tiles} />
         </section>
       )}
 
@@ -165,6 +165,81 @@ export default function Accueil() {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// Player central en défilement vertical, comme un fil Instagram : une vidéo par écran (scroll-snap),
+// celle qui est à l'écran joue, et à la fin la suivante monte par le bas. Le son se coupe par défaut
+// (les navigateurs bloquent la lecture automatique avec le son) ; une fois activé, il reste actif pour les suivantes.
+function Feed({ items }) {
+  const box = useRef(null)
+  const vids = useRef([])
+  const [current, setCurrent] = useState(0)
+  const [muted, setMuted] = useState(true)
+  const [progress, setProgress] = useState(0)
+
+  useEffect(() => {
+    const root = box.current
+    const io = new IntersectionObserver(entries => {
+      for (const en of entries) if (en.isIntersecting) setCurrent(Number(en.target.dataset.i))
+    }, { root, threshold: 0.6 })
+    root.querySelectorAll('[data-i]').forEach(el => io.observe(el))
+    return () => io.disconnect()
+  }, [items])
+
+  useEffect(() => {
+    vids.current.forEach((v, i) => {
+      if (!v) return
+      if (i === current) { v.currentTime = 0; v.play().catch(() => {}) } else v.pause()
+    })
+    setProgress(0)
+  }, [current, items])
+
+  function go(i) {
+    const n = (i + items.length) % items.length
+    box.current.scrollTo({ top: n * box.current.clientHeight, behavior: 'smooth' })
+  }
+
+  function onKey(ev) {
+    if (ev.key === 'ArrowDown' || ev.key === 'PageDown') { ev.preventDefault(); go(current + 1) }
+    if (ev.key === 'ArrowUp' || ev.key === 'PageUp') { ev.preventDefault(); go(current - 1) }
+    if (ev.key === ' ') { ev.preventDefault(); const v = vids.current[current]; v && (v.paused ? v.play() : v.pause()) }
+  }
+
+  return (
+    <div>
+      <div className="relative">
+        <div ref={box} tabIndex={0} onKeyDown={onKey} aria-label="Épisodes, flèches haut et bas pour changer"
+          className="aspect-[4/3] w-full overflow-y-scroll snap-y snap-mandatory bg-black rounded-sm focus:outline-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {items.map((v, i) => (
+            <div key={v.id + (v.day || '')} data-i={i} className="relative h-full w-full snap-start snap-always">
+              {Math.abs(i - current) <= 1
+                ? <video ref={el => (vids.current[i] = el)} src={v.file_url} poster={v.thumb_url || undefined} muted={muted} playsInline preload="auto"
+                    onClick={e => (e.target.paused ? e.target.play() : e.target.pause())}
+                    onTimeUpdate={e => i === current && setProgress(e.target.currentTime / (e.target.duration || 1))}
+                    onEnded={() => go(i + 1)}
+                    className="h-full w-full object-contain cursor-pointer" />
+                : v.thumb_url ? <img src={v.thumb_url} alt="" className="h-full w-full object-contain" /> : null}
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 p-3 md:p-4" style={{ background: 'linear-gradient(transparent, rgba(0,0,0,.75))' }}>
+                <p className="text-lg md:text-xl font-semibold text-white">{v.title}</p>
+                {v.day && <p className="text-sm" style={{ color: C.amber }}>Diffusé le {longDate(v.day)}</p>}
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="absolute left-0 right-0 bottom-0 h-0.5 pointer-events-none" style={{ background: 'rgba(255,255,255,.15)' }}>
+          <div className="h-full" style={{ width: `${progress * 100}%`, background: C.neon }} />
+        </div>
+        <button onClick={() => setMuted(m => !m)} className="absolute top-3 right-3 rounded-full px-3 py-1 text-sm font-semibold" style={{ background: 'rgba(0,0,0,.6)', color: C.tube }}>
+          {muted ? 'Activer le son' : 'Couper le son'}
+        </button>
+        <div className="absolute top-1/2 -translate-y-1/2 -right-1 md:-right-12 hidden sm:flex flex-col gap-2">
+          <button onClick={() => go(current - 1)} aria-label="Épisode précédent" className="w-9 h-9 rounded-full font-bold" style={{ background: C.tube, color: C.film }}>↑</button>
+          <button onClick={() => go(current + 1)} aria-label="Épisode suivant" className="w-9 h-9 rounded-full font-bold" style={{ background: C.neon, color: C.film }}>↓</button>
+        </div>
+      </div>
+      <p className="mt-2 text-sm tabular-nums" style={{ color: C.amber }}>{current + 1} / {items.length}</p>
     </div>
   )
 }
