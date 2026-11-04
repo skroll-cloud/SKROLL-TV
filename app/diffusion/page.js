@@ -164,9 +164,13 @@ export default function DiffusionPage() {
 
   async function addEntry(day, videoId) {
     const v = byId[videoId]
+    // the database refuses it too (unique index): the home page would show the episode twice
+    if (v && entries.some(e => e.day === day && e.format === 'short' && e.pad_ids[0] === v.id)) {
+      setError(`#${String(v.number).padStart(2, '0')} est déjà prévu le ${longDay(day)}.`); return
+    }
     const { data, error } = await supabase.from('broadcast_schedule')
       .insert([{ day, format: 'short', networks: FORMATS.short.networks, post_time: FORMATS.short.time, pad_ids: v ? [v.id] : [], caption: v ? defaultCaption(v) : '' }]).select().single()
-    if (error) { setError('Publication non ajoutée. Réessayez.'); return }
+    if (error) { setError(error.code === '23505' ? 'Cet épisode est déjà prévu ce jour-là (rechargez la page).' : 'Publication non ajoutée. Réessayez.'); return }
     const story = await supabase.from('broadcast_schedule')
       .insert([{ day: nextDay(day), format: 'story', networks: FORMATS.story.networks, post_time: FORMATS.story.time, pad_ids: data.pad_ids, parent_id: data.id }]).select().single()
     setEntries(es => [...es, data, ...(story.data ? [story.data] : [])])
