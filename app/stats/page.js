@@ -46,6 +46,7 @@ export default function Stats() {
   const [posts, setPosts] = useState([])
   const [followers, setFollowers] = useState([])
   const [watchTotals, setWatchTotals] = useState({})
+  const [sort, setSort] = useState({ key: 'total', desc: true })  // episode table, click a column title to sort
 
   async function load() {
     const [d, e, s, p, n, f, w] = await Promise.all([
@@ -110,7 +111,16 @@ export default function Stats() {
   const row = id => (rows[id] ||= { id, site: 0, total: 0, watch: 0 })
   episodes.forEach(e => { row(e.pad_id).site = e.vues; row(e.pad_id).total += e.vues; row(e.pad_id).watch += (e.secondes || 0) + (e.vues_sans_temps || 0) * perView })
   posts.filter(r => r.pad_id).forEach(r => { const o = row(r.pad_id); const k = r.network.replace(/_story$/, ''); o[k] = (o[k] || 0) + (r.views || 0); o.total += r.views || 0; o.watch += r.watch_seconds || 0 })
-  const perEpisode = Object.values(rows).sort((a, b) => b.total - a.total)
+  const sortValue = e => sort.key === 'number' ? titles[e.id]?.number ?? 0 : e[sort.key] ?? -1
+  const perEpisode = Object.values(rows).sort((a, b) => (sortValue(a) - sortValue(b)) * (sort.desc ? -1 : 1) || b.total - a.total)
+  const Sortable = ({ k, children, className = '' }) => (
+    <th className={`font-normal ${className}`}>
+      <button onClick={() => setSort(s => ({ key: k, desc: s.key === k ? !s.desc : k !== 'number' }))}
+        className={`inline-flex items-center gap-0.5 hover:text-gray-900 ${sort.key === k ? 'text-gray-900 font-medium' : ''}`}>
+        {children}<span className={sort.key === k ? '' : 'opacity-30'}>{sort.key === k && !sort.desc ? '↑' : '↓'}</span>
+      </button>
+    </th>
+  )
   const maxDay = Math.max(1, ...days.slice(0, 14).map(d => Math.max(d.visites, d.vues)))
 
   return (
@@ -209,7 +219,7 @@ export default function Stats() {
           {!perEpisode.length && <p className="text-sm text-gray-400">Aucune vue pour l'instant.</p>}
           {!!perEpisode.length && (
             <table className="w-full text-sm">
-              <thead><tr className="text-left text-xs text-gray-500"><th className="py-1 font-normal">Épisode</th><th className="font-normal text-right">Site</th>{NETWORKS.map(nw => <th key={nw.id} className="font-normal text-right">{nw.label}</th>)}<th className="font-normal text-right">Total</th><th className="font-normal text-right pl-2">Temps regardé</th></tr></thead>
+              <thead><tr className="text-left text-xs text-gray-500"><Sortable k="number" className="py-1">Épisode</Sortable><Sortable k="site" className="text-right">Site</Sortable>{NETWORKS.map(nw => <Sortable key={nw.id} k={nw.id} className="text-right">{nw.label}</Sortable>)}<Sortable k="total" className="text-right">Total</Sortable><Sortable k="watch" className="text-right pl-2">Temps regardé</Sortable></tr></thead>
               <tbody className="divide-y">
                 {perEpisode.map(e => (
                   <tr key={e.id}>
