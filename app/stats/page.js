@@ -98,13 +98,17 @@ export default function Stats() {
       // watch time per video when Metricool gives it (Instagram, Facebook), else the channel total typed in from a screenshot (YouTube)
       watch: sum(mine, 'watch_seconds') || watchTotals[nw.id]?.watch_seconds || null, watchTotal: !sum(mine, 'watch_seconds') ? watchTotals[nw.id] : null }
   })
-  const siteWatch = sum(days, 'secondes')
+  // site views made before watch time was measured on the home page: estimated with the networks' average seconds per view
+  const netViews = net.reduce((n, nw) => n + (nw.watch ? nw.watchTotal?.views || nw.views : 0), 0)
+  const perView = netViews ? net.reduce((n, nw) => n + (nw.watch || 0), 0) / netViews : 0
+  const siteGuess = sum(days, 'vues_sans_temps') * perView
+  const siteWatch = sum(days, 'secondes') + siteGuess
   const watchAll = siteWatch + net.reduce((n, nw) => n + (nw.watch || 0), 0)
   const synced = posts.reduce((m, r) => (r.updated_at > m ? r.updated_at : m), '')
   // one row per episode: site views + views on each network
   const rows = {}
   const row = id => (rows[id] ||= { id, site: 0, total: 0, watch: 0 })
-  episodes.forEach(e => { row(e.pad_id).site = e.vues; row(e.pad_id).total += e.vues; row(e.pad_id).watch += e.secondes || 0 })
+  episodes.forEach(e => { row(e.pad_id).site = e.vues; row(e.pad_id).total += e.vues; row(e.pad_id).watch += (e.secondes || 0) + (e.vues_sans_temps || 0) * perView })
   posts.filter(r => r.pad_id).forEach(r => { const o = row(r.pad_id); const k = r.network.replace(/_story$/, ''); o[k] = (o[k] || 0) + (r.views || 0); o.total += r.views || 0; o.watch += r.watch_seconds || 0 })
   const perEpisode = Object.values(rows).sort((a, b) => b.total - a.total)
   const maxDay = Math.max(1, ...days.slice(0, 14).map(d => Math.max(d.visites, d.vues)))
@@ -154,19 +158,20 @@ export default function Stats() {
             <p className="text-2xl font-bold tabular-nums">{duration(watchAll)} <span className="text-xs font-normal text-gray-500">au total, partout</span></p>
           </div>
           <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-            {[{ id: 'site', label: 'Site skroll.tv', color: 'bg-pink-300', watch: siteWatch, views: sum(days, 'vues') }, ...net].map(w => (
+            {[{ id: 'site', label: 'Site skroll.tv', color: 'bg-pink-300', watch: siteWatch, views: sum(days, 'vues'), guess: siteGuess }, ...net].map(w => (
               <div key={w.id} className="rounded-lg border p-3">
                 <p className="text-sm font-medium text-gray-900 flex items-center gap-2"><span className={`inline-block w-2.5 h-2.5 rounded-full ${w.color}`} />{w.label}</p>
                 <p className="text-2xl font-bold tabular-nums mt-1">{w.watch ? duration(w.watch) : '–'}</p>
                 <p className="text-xs text-gray-500">
-                  {w.watchTotal ? `chaîne entière, capture YouTube Studio du ${new Date(w.watchTotal.as_of + 'T12:00:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}`
+                  {w.guess ? `dont ${duration(w.guess)} estimées : ${sum(days, 'vues_sans_temps')} vues d'avant le 5 nov. × ${perView.toFixed(1).replace('.', ',')} s (moyenne des réseaux)`
+                    : w.watchTotal ? `chaîne entière, capture YouTube Studio du ${new Date(w.watchTotal.as_of + 'T12:00:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}`
                     : !w.watch ? (w.id === 'tiktok' ? 'TikTok ne le fournit pas à Metricool' : 'pas encore de chiffre')
                     : `${(w.watch / Math.max(1, w.watchTotal?.views || w.views)).toFixed(1).replace('.', ',')} s par vue en moyenne`}
                 </p>
               </div>
             ))}
           </div>
-          <p className="text-xs text-gray-500 mt-2">Site : secondes réellement jouées (en direct, sans les retours en arrière). Instagram et Facebook : chiffres Metricool, par vidéo. YouTube : Metricool ne le donne pas, total de la chaîne recopié depuis YouTube Studio.</p>
+          <p className="text-xs text-gray-500 mt-2">Site : secondes réellement jouées (en direct, sans les retours en arrière) depuis le 5 novembre au soir ; avant, estimé avec la moyenne par vue des réseaux. Instagram et Facebook : chiffres Metricool, par vidéo. YouTube : Metricool ne le donne pas, total de la chaîne recopié depuis YouTube Studio.</p>
         </section>
 
         <div className="grid md:grid-cols-2 gap-6">
