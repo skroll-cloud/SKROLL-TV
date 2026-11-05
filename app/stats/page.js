@@ -24,6 +24,14 @@ function todayParis() {
   return new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Paris' })
 }
 
+// 31652 → "8 h 48", 754 → "12 min", 40 → "40 s"
+function duration(sec) {
+  if (!sec) return '0 s'
+  if (sec < 60) return `${Math.round(sec)} s`
+  const min = Math.round(sec / 60)
+  return min < 60 ? `${min} min` : `${Math.floor(min / 60)} h ${String(min % 60).padStart(2, '0')}`
+}
+
 function shortDate(iso) {
   return new Date(iso + 'T12:00:00').toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' })
 }
@@ -37,15 +45,17 @@ export default function Stats() {
   const [titles, setTitles] = useState({})
   const [posts, setPosts] = useState([])
   const [followers, setFollowers] = useState([])
+  const [watchTotals, setWatchTotals] = useState({})
 
   async function load() {
-    const [d, e, s, p, n, f] = await Promise.all([
+    const [d, e, s, p, n, f, w] = await Promise.all([
       supabase.from('stats_jours').select('*').order('jour', { ascending: false }).limit(60),
       supabase.from('stats_episodes').select('*').order('vues', { ascending: false }),
       supabase.from('stats_sources').select('*').order('visites', { ascending: false }).limit(15),
       supabase.from('pad_videos').select('id,number,title'),
       supabase.from('network_posts').select('*'),
       supabase.from('network_followers').select('*').order('day', { ascending: false }).limit(400),
+      supabase.from('network_watch_totals').select('*'),
     ])
     if (d.data) setDays(d.data)
     if (e.data) setEpisodes(e.data)
@@ -53,6 +63,7 @@ export default function Stats() {
     if (p.data) setTitles(Object.fromEntries(p.data.map(v => [v.id, v])))
     if (n.data) setPosts(n.data)
     if (f.data) setFollowers(f.data)
+    if (w.data) setWatchTotals(Object.fromEntries(w.data.map(r => [r.network, r])))
   }
 
   useEffect(() => {
@@ -81,14 +92,20 @@ export default function Stats() {
     const last = rows[0]
     const weekAgo = rows.find(r => (new Date(last?.day) - new Date(r.day)) / 86400000 >= 7)
     const mine = posts.filter(r => r.network === nw.id)
-    return { ...nw, followers: last?.followers, gain: last && weekAgo ? last.followers - weekAgo.followers : null, views: sum(mine, 'views'), likes: sum(mine, 'likes'), posts: mine.length }
+    // Instagram stories (reel reposted the next day at noon) count as views of the episode: most reels are short enough to be seen whole there
+    const stories = posts.filter(r => r.network === nw.id + '_story')
+    return { ...nw, followers: last?.followers, gain: last && weekAgo ? last.followers - weekAgo.followers : null, views: sum(mine, 'views') + sum(stories, 'views'), storyViews: sum(stories, 'views'), stories: stories.length, likes: sum(mine, 'likes'), posts: mine.length,
+      // watch time per video when Metricool gives it (Instagram, Facebook), else the channel total typed in from a screenshot (YouTube)
+      watch: sum(mine, 'watch_seconds') || watchTotals[nw.id]?.watch_seconds || null, watchTotal: !sum(mine, 'watch_seconds') ? watchTotals[nw.id] : null }
   })
+  const siteWatch = sum(days, 'secondes')
+  const watchAll = siteWatch + net.reduce((n, nw) => n + (nw.watch || 0), 0)
   const synced = posts.reduce((m, r) => (r.updated_at > m ? r.updated_at : m), '')
   // one row per episode: site views + views on each network
   const rows = {}
-  const row = id => (rows[id] ||= { id, site: 0, total: 0 })
-  episodes.forEach(e => { row(e.pad_id).site = e.vues; row(e.pad_id).total += e.vues })
-  posts.filter(r => r.pad_id).forEach(r => { const o = row(r.pad_id); o[r.network] = (o[r.network] || 0) + (r.views || 0); o.total += r.views || 0 })
+  const row = id => (rows[id] ||= { id, site: 0, total: 0, watch: 0 })
+  episodes.forEach(e => { row(e.pad_id).site = e.vues; row(e.pad_id).total += e.vues; row(e.pad_id).watch += e.secondes || 0 })
+  posts.filter(r => r.pad_id).forEach(r => { const o = row(r.pad_id); const k = r.network.replace(/_story$/, ''); o[k] = (o[k] || 0) + (r.views || 0); o.total += r.views || 0; o.watch += r.watch_seconds || 0 })
   const perEpisode = Object.values(rows).sort((a, b) => b.total - a.total)
   const maxDay = Math.max(1, ...days.slice(0, 14).map(d => Math.max(d.visites, d.vues)))
 
@@ -125,10 +142,31 @@ export default function Stats() {
               <div key={nw.id} className="rounded-lg border p-3">
                 <p className="text-sm font-medium text-gray-900 flex items-center gap-2"><span className={`inline-block w-2.5 h-2.5 rounded-full ${nw.color}`} />{nw.label}</p>
                 <p className="text-2xl font-bold tabular-nums mt-1">{nw.followers ?? '–'} <span className="text-xs font-normal text-gray-500">abonnés{nw.gain != null && ` (${nw.gain >= 0 ? '+' : ''}${nw.gain} en 7 j)`}</span></p>
-                <p className="text-sm text-gray-600 tabular-nums">{nw.views} vues · {nw.likes} j'aime · {nw.posts} vidéos</p>
+                <p className="text-sm text-gray-600 tabular-nums">{nw.views} vues{nw.storyViews ? ` (dont ${nw.storyViews} en story)` : ''} · {nw.likes} j'aime · {nw.posts} vidéos{nw.stories ? ` + ${nw.stories} stories` : ''}</p>
               </div>
             ))}
           </div>
+        </section>
+
+        <section className="bg-white rounded-xl border p-4 mb-6">
+          <div className="flex flex-wrap items-baseline justify-between gap-2 mb-3">
+            <h3 className="font-semibold text-gray-900">Temps de visionnage</h3>
+            <p className="text-2xl font-bold tabular-nums">{duration(watchAll)} <span className="text-xs font-normal text-gray-500">au total, partout</span></p>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+            {[{ id: 'site', label: 'Site skroll.tv', color: 'bg-pink-300', watch: siteWatch, views: sum(days, 'vues') }, ...net].map(w => (
+              <div key={w.id} className="rounded-lg border p-3">
+                <p className="text-sm font-medium text-gray-900 flex items-center gap-2"><span className={`inline-block w-2.5 h-2.5 rounded-full ${w.color}`} />{w.label}</p>
+                <p className="text-2xl font-bold tabular-nums mt-1">{w.watch ? duration(w.watch) : '–'}</p>
+                <p className="text-xs text-gray-500">
+                  {w.watchTotal ? `chaîne entière, capture YouTube Studio du ${new Date(w.watchTotal.as_of + 'T12:00:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}`
+                    : !w.watch ? (w.id === 'tiktok' ? 'TikTok ne le fournit pas à Metricool' : 'pas encore de chiffre')
+                    : `${(w.watch / Math.max(1, w.watchTotal?.views || w.views)).toFixed(1).replace('.', ',')} s par vue en moyenne`}
+                </p>
+              </div>
+            ))}
+          </div>
+          <p className="text-xs text-gray-500 mt-2">Site : secondes réellement jouées (en direct, sans les retours en arrière). Instagram et Facebook : chiffres Metricool, par vidéo. YouTube : Metricool ne le donne pas, total de la chaîne recopié depuis YouTube Studio.</p>
         </section>
 
         <div className="grid md:grid-cols-2 gap-6">
@@ -161,11 +199,12 @@ export default function Stats() {
         </div>
 
         <section className="bg-white rounded-xl border p-4 mt-6 overflow-x-auto">
-          <h3 className="font-semibold text-gray-900 mb-3">Vues par épisode, partout</h3>
+          <h3 className="font-semibold text-gray-900 mb-1">Vues par épisode, partout</h3>
+          <p className="text-xs text-gray-500 mb-3">Temps regardé : site + Instagram + Facebook (YouTube et TikTok ne donnent pas le détail par vidéo).</p>
           {!perEpisode.length && <p className="text-sm text-gray-400">Aucune vue pour l'instant.</p>}
           {!!perEpisode.length && (
             <table className="w-full text-sm">
-              <thead><tr className="text-left text-xs text-gray-500"><th className="py-1 font-normal">Épisode</th><th className="font-normal text-right">Site</th>{NETWORKS.map(nw => <th key={nw.id} className="font-normal text-right">{nw.label}</th>)}<th className="font-normal text-right">Total</th></tr></thead>
+              <thead><tr className="text-left text-xs text-gray-500"><th className="py-1 font-normal">Épisode</th><th className="font-normal text-right">Site</th>{NETWORKS.map(nw => <th key={nw.id} className="font-normal text-right">{nw.label}</th>)}<th className="font-normal text-right">Total</th><th className="font-normal text-right pl-2">Temps regardé</th></tr></thead>
               <tbody className="divide-y">
                 {perEpisode.map(e => (
                   <tr key={e.id}>
@@ -173,6 +212,7 @@ export default function Stats() {
                     <td className="text-right tabular-nums px-1">{e.site}</td>
                     {NETWORKS.map(nw => <td key={nw.id} className="text-right tabular-nums px-1">{e[nw.id] ?? '–'}</td>)}
                     <td className="text-right tabular-nums font-semibold pl-1">{e.total}</td>
+                    <td className="text-right tabular-nums pl-2 whitespace-nowrap">{e.watch ? duration(e.watch) : '–'}</td>
                   </tr>
                 ))}
               </tbody>

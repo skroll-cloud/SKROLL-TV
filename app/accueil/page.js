@@ -5,10 +5,9 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@supabase/supabase-js'
 import { Bricolage_Grotesque, Montserrat } from 'next/font/google'
 
-const supabase = createClient(
-  'https://riotdlbdywxuouvdgqpt.supabase.co',
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJpb3RkbGJkeXd4dW91dmRncXB0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzAxNTIxOTAsImV4cCI6MjA4NTcyODE5MH0.DymkDS6E-ouapVQerRjZSHDEeUbV81GY-5i7d5kOQ1w'
-)
+const SUPABASE_URL = 'https://riotdlbdywxuouvdgqpt.supabase.co'
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJpb3RkbGJkeXd4dW91dmRncXB0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzAxNTIxOTAsImV4cCI6MjA4NTcyODE5MH0.DymkDS6E-ouapVQerRjZSHDEeUbV81GY-5i7d5kOQ1w'
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY)
 const font = Bricolage_Grotesque({ subsets: ['latin'], weight: ['400', '600', '800'] })
 const baselineFont = Montserrat({ subsets: ['latin'], weight: ['600'] })
 
@@ -50,19 +49,45 @@ function longDate(day) {
 // Browsers logged in to the team workspace are not counted.
 let visit = null
 const counted = new Set()
-function track(kind, padId, source) {
-  if (typeof window === 'undefined' || localStorage.getItem('skroll_user')) return
+function event(kind, padId, source, seconds) {
   if (!visit) {
     try { visit = sessionStorage.getItem('skroll_visit') } catch {}
     if (!visit) { visit = Math.random().toString(36).slice(2, 12); try { sessionStorage.setItem('skroll_visit', visit) } catch {} }
   }
   let referrer = null
   try { const h = new URL(document.referrer).hostname.replace(/^(www|m|l|lm)\./, ''); if (!h.endsWith('skroll.tv')) referrer = h.slice(0, 120) } catch {}
-  supabase.from('site_events').insert({ kind, pad_id: padId || null, visit, device: window.matchMedia('(max-width: 767px)').matches ? 'phone' : 'desktop', source, referrer }).then(() => {})
+  return { kind, pad_id: padId || null, visit, device: window.matchMedia('(max-width: 767px)').matches ? 'phone' : 'desktop', source, referrer, seconds: seconds ?? null }
+}
+function counting() {
+  return typeof window !== 'undefined' && !localStorage.getItem('skroll_user')
+}
+function track(kind, padId, source) {
+  if (!counting()) return
+  supabase.from('site_events').insert(event(kind, padId, source)).then(() => {})
+}
+// Watch time: seconds actually played per episode (seeks and loops back to the start are not counted),
+// sent as rows kind 'temps' when the tab is hidden or closed, plus every minute for long sessions.
+const played = {}
+function addPlayed(el, v, source) {
+  const p = played[v.id] ||= { last: el.currentTime, pending: 0, source }
+  const d = el.currentTime - p.last
+  if (d > 0 && d < 1.5) p.pending += d
+  p.last = el.currentTime
+  p.source = source
+}
+function flushPlayed() {
+  if (!counting()) return
+  const rows = Object.entries(played).filter(([, p]) => p.pending >= 0.5).map(([id, p]) => event('temps', id, p.source, Math.round(p.pending * 10) / 10))
+  Object.values(played).forEach(p => { p.pending = 0 })
+  if (!rows.length) return
+  // keepalive: the request survives the tab being closed
+  fetch(`${SUPABASE_URL}/rest/v1/site_events`, { method: 'POST', keepalive: true, body: JSON.stringify(rows),
+    headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', Prefer: 'return=minimal' } }).catch(() => {})
 }
 // an episode counts as viewed after 3 s of playback (or almost all of it for the very short ones), once per visit
 function watched(e, v, source) {
   const el = e.target
+  addPlayed(el, v, source)
   if (counted.has(v.id) || el.currentTime < Math.min(3, (el.duration || 3) * 0.9)) return
   counted.add(v.id)
   track('vue', v.id, source)
@@ -111,6 +136,10 @@ export default function Accueil() {
     if (new URLSearchParams(location.search).has('modifier')) setUser(saved)
     setReady(true)
     track('visite', null, null)
+    const hidden = () => document.visibilityState === 'hidden' && flushPlayed()
+    document.addEventListener('visibilitychange', hidden)
+    window.addEventListener('pagehide', flushPlayed)
+    const timer = setInterval(flushPlayed, 60000)
     Promise.all([
       supabase.from('site_content').select('key,value'),
       supabase.from('pad_videos').select('id,number,file_url,vertical_url,thumb_url,status').order('number'),
@@ -120,6 +149,7 @@ export default function Accueil() {
       if (v.data) setVideos(v.data)
       if (s.data) setShorts(s.data)
     })
+    return () => { document.removeEventListener('visibilitychange', hidden); window.removeEventListener('pagehide', flushPlayed); clearInterval(timer) }
   }, [])
 
   useEffect(() => {
