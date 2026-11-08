@@ -16,7 +16,7 @@ const NETWORKS = [
   { id: 'youtube', label: 'YouTube', short: 'YT' },
 ]
 const ALL_NETWORKS = NETWORKS.map(n => n.id)
-// Diffusion strategy. November: a reel every day at 18:00 on the four networks, reposted as an Instagram story the next day at noon.
+// Diffusion strategy. November: a reel every day at 18:00 on the four networks (automatic stories dropped on 2026-11-05: done by hand in Instagram).
 // From December (to confirm after the November review), one slot a day alternating: reel Mon/Wed/Thu/Sat, compil Tue/Fri, episode on Sunday
 // (the full 2 minutes on YouTube + Facebook, an extract as a Reel on Instagram + TikTok pointing to it).
 const FORMATS = {
@@ -105,6 +105,7 @@ export default function DiffusionPage() {
   const [picked, setPicked] = useState(null)  // PAD episode clicked in the side list, placed on the next day clicked
   const [uploading, setUploading] = useState(null)
   const [onlyTodo, setOnlyTodo] = useState(false)
+  const [agent, setAgent] = useState(null)  // last pass of Claude's scheduled task (sends requested posts to Metricool)
 
   useEffect(() => {
     const saved = localStorage.getItem('skroll_user')
@@ -121,10 +122,12 @@ export default function DiffusionPage() {
   }, [])
 
   async function load() {
-    const [s, v] = await Promise.all([
+    const [s, v, a] = await Promise.all([
       supabase.from('broadcast_schedule').select('*').order('day', { ascending: true }).order('created_at', { ascending: true }),
-      supabase.from('pad_videos').select('id,number,title,archives,file_url,status,vertical_url,vertical_name').order('number')
+      supabase.from('pad_videos').select('id,number,title,archives,file_url,status,vertical_url,vertical_name').order('number'),
+      supabase.from('agent_status').select('*').eq('id', 'metricool').maybeSingle()
     ])
+    if (a.data) setAgent(a.data)
     if (s.error || v.error) setError('Impossible de charger le planning. Rechargez la page.')
     else { setEntries(s.data); setVideos(v.data); setError('') }
     setLoading(false)
@@ -140,6 +143,9 @@ export default function DiffusionPage() {
   const ownFinal = e => e.final_url || (e.format === 'short' && byId[e.pad_ids[0]]?.vertical_url) || null
   const finalOf = e => e.format === 'story' ? (parentOf(e) ? ownFinal(parentOf(e)) : null) : ownFinal(e)
   const todo = e => !finalOf(e)
+  const requested = e => !locked(e) && !!e.publish_requested_at
+  // a reel goes online with its story if it still has one (stories are no longer created automatically)
+  const withStories = e => [e, ...entries.filter(x => x.parent_id === e.id && !locked(x))]
   const visible = e => shownFormats.includes(e.format) && e.networks.some(n => shownNetworks.includes(n)) && (!onlyTodo || todo(e))
   const editing = entries.find(e => e.id === editingId)
 
@@ -171,9 +177,8 @@ export default function DiffusionPage() {
     const { data, error } = await supabase.from('broadcast_schedule')
       .insert([{ day, format: 'short', networks: FORMATS.short.networks, post_time: FORMATS.short.time, pad_ids: v ? [v.id] : [], caption: v ? defaultCaption(v) : '' }]).select().single()
     if (error) { setError(error.code === '23505' ? 'Cet épisode est déjà prévu ce jour-là (rechargez la page).' : 'Publication non ajoutée. Réessayez.'); return }
-    const story = await supabase.from('broadcast_schedule')
-      .insert([{ day: nextDay(day), format: 'story', networks: FORMATS.story.networks, post_time: FORMATS.story.time, pad_ids: data.pad_ids, parent_id: data.id }]).select().single()
-    setEntries(es => [...es, data, ...(story.data ? [story.data] : [])])
+    // no automatic story any more (team decision 2026-11-05): an uploaded story is a separate post that brings no views to the reel; stories are done by hand in Instagram
+    setEntries(es => [...es, data])
     if (!v) setEditingId(data.id)
   }
 
@@ -181,6 +186,12 @@ export default function DiffusionPage() {
     if (!picked) return
     addEntry(day, picked)
     setPicked(null)
+  }
+
+  async function requestPublish(e, on) {
+    const patch = on ? { publish_requested_at: new Date().toISOString(), publish_requested_by: currentUser, publish_error: null }
+      : { publish_requested_at: null, publish_requested_by: null }
+    for (const x of withStories(e)) await updateEntry(x.id, patch)
   }
 
   async function deleteEntry(e) {
@@ -252,6 +263,8 @@ export default function DiffusionPage() {
       className={`w-full text-left text-xs rounded-md border-l-4 px-1.5 py-1 flex items-center gap-1 ${FORMATS[e.format].chip} ${todo(e) ? 'border-dashed opacity-80' : ''} ${locked(e) || e.format === 'story' ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing'}`}>
       <span className="line-clamp-2 break-words flex-1 leading-tight"><span className="opacity-60 tabular-nums mr-1">{e.post_time}</span><span className={`font-medium ${todo(e) ? 'italic' : ''}`}>{entryName(e)}</span>{e.format === 'short' && byId[e.pad_ids[0]] && workStatus(byId[e.pad_ids[0]]) && <span className="ml-1 text-[10px] uppercase tracking-wide text-gray-500">{workStatus(byId[e.pad_ids[0]])}</span>}</span>
       {locked(e) ? <span className="shrink-0 text-green-700" aria-label="Envoyé à Metricool">✓</span>
+        : e.publish_error ? <span className="shrink-0 text-red-600 font-bold" aria-label="Mise en ligne en erreur">!</span>
+        : requested(e) ? <span className="shrink-0 text-amber-600" aria-label="Mise en ligne demandée">⏳</span>
         : !todo(e) ? <span className="shrink-0 w-1.5 h-1.5 rounded-full bg-green-500" aria-label="Fichier final prêt" /> : null}
     </button>
   )
@@ -322,8 +335,10 @@ export default function DiffusionPage() {
           <div className="text-xs text-gray-500 space-y-1">
             <p><span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500 mr-1.5 align-middle" />fichier final déposé</p>
             <p><span className="inline-block w-4 border-t-2 border-dashed border-gray-400 mr-1.5 align-middle" />pointillés, italique : reste à faire (pas de fichier final)</p>
+            <p><span className="text-amber-600 mr-1.5">⏳</span>mise en ligne demandée à Claude</p>
             <p><span className="text-green-700 mr-1.5">✓</span>envoyé à Metricool</p>
           </div>
+          <AgentStatus agent={agent} pending={entries.filter(requested).length} />
         </aside>
 
         <main className="flex-1 min-w-0 px-4 md:px-6 py-5">
@@ -348,7 +363,7 @@ export default function DiffusionPage() {
               <button onClick={() => setPicked(null)} className="text-blue-700 hover:underline">Annuler</button>
             </div>
           )}
-          <p className="hidden md:block text-xs text-gray-500 mb-2">Placer un épisode PAD sur un jour crée son réel à 18 h et sa story Instagram le lendemain à midi (la story suit son réel quand on le déplace). Glissez une publication sur un autre jour pour la déplacer ; si ce jour a déjà le même format, les deux s'échangent. Cliquez sur une publication pour la modifier ou déposer le fichier final 9:16.</p>
+          <p className="hidden md:block text-xs text-gray-500 mb-2">Placer un épisode PAD sur un jour crée son réel à 18 h (les stories se font à la main dans Instagram). Glissez une publication sur un autre jour pour la déplacer ; si ce jour a déjà le même format, les deux s'échangent. Cliquez sur une publication pour la modifier ou déposer le fichier final 9:16.</p>
 
           {/* Month grid (tablet and up) */}
           <div className="hidden md:block bg-white rounded-xl shadow-sm overflow-hidden">
@@ -400,6 +415,7 @@ export default function DiffusionPage() {
 
       {editing && (
         <Editor entry={editing} finalUrl={finalOf(editing)} parent={parentOf(editing)} locked={locked(editing)} pickable={pickable} byId={byId} uploading={uploading === editing.id}
+          agent={agent} onRequest={on => requestPublish(editing, on)}
           name={entryName(editing)} onClose={() => setEditingId(null)} onChange={patch => updateEntry(editing.id, patch)}
           onUpload={file => uploadFinal(editing, file)} onDelete={() => deleteEntry(editing)} />
       )}
@@ -407,7 +423,26 @@ export default function DiffusionPage() {
   )
 }
 
-function Editor({ entry, finalUrl, parent, locked, pickable, byId, uploading, name, onClose, onChange, onUpload, onDelete }) {
+function minutesAgo(ts) {
+  return ts ? Math.round((Date.now() - new Date(ts).getTime()) / 60000) : null
+}
+
+// Claude's scheduled task runs every 30 min (8 h–23 h) on Bertrand's Mac, only while the Mac is awake with the Claude app open.
+function AgentStatus({ agent, pending }) {
+  const min = minutesAgo(agent?.last_run)
+  const on = min !== null && min <= 45
+  const ago = min === null ? 'jamais' : min < 60 ? `il y a ${min} min` : min < 1440 ? `il y a ${Math.round(min / 60)} h` : `le ${new Date(agent.last_run).toLocaleDateString('fr-FR')}`
+  return (
+    <div className="text-xs space-y-1">
+      <p className="font-semibold text-gray-400 uppercase tracking-wide">Mise en ligne par Claude</p>
+      <p className="flex items-center gap-1.5 text-gray-700"><span className={`w-2 h-2 rounded-full ${on ? 'bg-green-500' : 'bg-gray-300'}`} />{on ? 'Branché' : 'Pas branché'} · dernier passage {ago}</p>
+      {pending > 0 && <p className="text-amber-700">{pending} demande{pending > 1 ? 's' : ''} en attente</p>}
+      {!on && <p className="text-gray-500">Les demandes partiront au prochain passage, quand le Mac de Bertrand sera allumé.</p>}
+    </div>
+  )
+}
+
+function Editor({ entry, finalUrl, parent, locked, pickable, byId, uploading, agent, onRequest, name, onClose, onChange, onUpload, onDelete }) {
   const fileInput = useRef(null)
   const format = FORMATS[entry.format]
   const slotCount = format.slots || entry.pad_ids.length + 1
@@ -454,6 +489,22 @@ function Editor({ entry, finalUrl, parent, locked, pickable, byId, uploading, na
 
         <div className="px-5 py-4 space-y-5">
           {locked && <p className="text-sm text-green-800 bg-green-50 rounded-lg px-3 py-2">Déjà envoyée à Metricool : modifiez-la dans Metricool, ou demandez à Claude de la retirer d'abord.</p>}
+          {!locked && <section className="rounded-lg border px-3 py-3 space-y-2">
+            <p className="text-sm font-semibold text-gray-900">Mise en ligne</p>
+            {entry.publish_error && <p className="text-sm text-red-700 bg-red-50 rounded px-2 py-1">Claude n'a pas pu la programmer : {entry.publish_error}</p>}
+            {entry.publish_requested_at
+              ? <>
+                <p className="text-sm text-amber-800">Demandée par {entry.publish_requested_by} le {new Date(entry.publish_requested_at).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}. Claude la programme dans Metricool à son prochain passage (toutes les 30 min).</p>
+                <button onClick={() => onRequest(false)} className="text-sm text-gray-600 hover:text-gray-900 underline">Annuler la demande</button>
+              </>
+              : <>
+                <button onClick={() => onRequest(true)} disabled={!finalUrl || isStory && !parent}
+                  className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-40">Mettre en ligne via Claude</button>
+                <p className="text-xs text-gray-500">{!finalUrl ? "Il faut d'abord le fichier 9:16." : `Programme la publication dans Metricool pour le ${longDay(entry.day)} à ${entry.post_time}. Pensez à vérifier texte et titre avant.`}</p>
+              </>}
+            {minutesAgo(agent?.last_run) === null || minutesAgo(agent?.last_run) > 45
+              ? <p className="text-xs text-gray-500">Claude n'est pas branché en ce moment : la demande partira quand le Mac de Bertrand sera allumé.</p> : null}
+          </section>}
 
           <section>
             <p className="text-sm font-semibold text-gray-900 mb-2">Fichier à publier</p>
