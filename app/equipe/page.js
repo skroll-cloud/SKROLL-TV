@@ -64,12 +64,13 @@ function statusLabel(status) {
 const NAV_ITEMS = [
   { id: 'pad', label: 'Épisodes' },
   { id: 'diffusion', label: 'Planning de diffusion' },
+  { id: 'habillage', label: 'Habillage et mix (pack)' },
   { id: 'ideas', label: 'Idées' },
   { id: 'contacts', label: 'Contacts' },
   { id: 'stats', label: 'Statistiques' },
   { id: '?modifier', label: "Page d'accueil (modifier)" },
 ]
-const NAV_ROUTES = ['pad', 'diffusion', 'stats', '?modifier']
+const NAV_ROUTES = ['pad', 'diffusion', 'habillage', 'stats', '?modifier']
 
 export default function Home() {
   const router = useRouter()
