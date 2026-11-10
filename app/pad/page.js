@@ -60,6 +60,7 @@ export default function PadPage() {
   const [search, setSearch] = useState('')
   const [openId, setOpenId] = useState(null)
   const [uploading, setUploading] = useState(null)
+  const [adding, setAdding] = useState(false)
 
   useEffect(() => {
     const saved = localStorage.getItem('skroll_user')
@@ -102,6 +103,37 @@ export default function PadPage() {
     setUploading(null)
   }
 
+  // a new episode, finished (mixed + dressed) by whoever made it: 4:3 file required, 9:16 optional, next free number
+  async function addEpisode({ title, archives, tags, note, file43, file916 }) {
+    const number = Math.max(0, ...videos.map(v => v.number)) + 1
+    const v = { number, title: cleanTitle(title), archives }
+    const name = expectedName(v)
+    const stamp = new Date().toISOString().slice(0, 16).replace(/[-:]/g, '').replace('T', '-')
+    const path = `pad/${stamp}-_${name.slice(1)}.mp4`
+    const up = await supabase.storage.from('Videos').upload(path, file43, { cacheControl: '3600', upsert: false })
+    if (up.error) throw new Error(`Envoi du 4:3 impossible : ${up.error.message}`)
+    const url = p => supabase.storage.from('Videos').getPublicUrl(p).data.publicUrl
+    const { seconds, thumb } = await probe(file43)
+    let thumb_url = null
+    if (thumb) {
+      const tp = `pad/vignettes/v${number}-${stamp}.jpg`
+      const t = await supabase.storage.from('Videos').upload(tp, thumb, { contentType: 'image/jpeg', upsert: false })
+      if (!t.error) thumb_url = url(tp)
+    }
+    let vertical = {}
+    if (file916) {
+      const vp = `pad/916/${stamp}-_${name.slice(1)}.mp4`
+      const u = await supabase.storage.from('Videos').upload(vp, file916, { cacheControl: '3600', upsert: false })
+      if (u.error) throw new Error(`Envoi du 9:16 impossible : ${u.error.message}`)
+      vertical = { vertical_url: url(vp), vertical_name: `${name}.mp4`, vertical_uploaded_at: new Date().toISOString(), vertical_uploaded_by: currentUser }
+    }
+    const { error } = await supabase.from('pad_videos').insert([{ ...v, name, tags, note: note || null, file_url: url(path), file_name: `${name}.mp4`, file_size: file43.size,
+      duration_s: seconds ? Math.round(seconds * 100) / 100 : null, thumb_url, uploaded_by: currentUser, ...vertical }])
+    if (error) throw new Error(error.code === '23505' ? 'Ce numéro vient d\'être pris : rechargez la page et réessayez.' : `Épisode pas enregistré : ${error.message}`)
+    await load()
+    setFilter('todo')
+  }
+
   function chooseFilter(f) {
     setFilter(f)
     try { localStorage.setItem('skroll_pad_filter2', f) } catch {}
@@ -116,7 +148,7 @@ export default function PadPage() {
   const aired = id => slots(id).filter(e => new Date(`${e.day}T${e.post_time || '18:00'}:00+01:00`) <= now)
   const reuses = id => entries.filter(e => !['short', 'story'].includes(e.format) && e.pad_ids.includes(id))
   const matches = v => {
-    if (search && !`${v.number} ${v.title} ${v.name}`.toLowerCase().includes(search.toLowerCase())) return false
+    if (search && !`${v.number} ${v.title} ${v.name} ${(v.tags || []).join(' ')}`.toLowerCase().includes(search.toLowerCase())) return false
     if (filter === 'todo') return !v.status
     if (filter === 'modif') return v.status === 'modif'
     if (filter === 'pad') return v.status === 'pad' && !aired(v.id).length
@@ -150,6 +182,10 @@ export default function PadPage() {
         <h2 className="text-2xl md:text-3xl font-bold text-gray-900">Épisodes</h2>
         <p className="text-sm text-gray-500 mt-1 mb-4">Versions mixées et habillées. Passez chaque épisode en « Modif à faire » ou en « PAD » : les PAD apparaissent à côté du planning, prêts à être glissés sur un jour. Chaque épisode a sa version 9:16, téléchargeable ou à déposer : c'est elle que publient les réels du planning.</p>
 
+        {adding
+          ? <AddEpisode next={Math.max(0, ...videos.map(v => v.number)) + 1} onCancel={() => setAdding(false)} onAdd={async ep => { await addEpisode(ep); setAdding(false) }} />
+          : <button onClick={() => setAdding(true)} className="mb-4 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700">+ Ajouter un épisode fini</button>}
+
         <div className="flex flex-wrap gap-2 mb-3">
           {FILTERS.map(([id, label]) => (
             <button key={id} onClick={() => chooseFilter(id)}
@@ -158,7 +194,7 @@ export default function PadPage() {
             </button>
           ))}
         </div>
-        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Chercher un numéro ou un titre…"
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Chercher un numéro, un titre, un mot-clé…"
           className="w-full md:w-80 border rounded-lg px-3 py-2 text-sm mb-4 bg-white focus:outline-none focus:border-blue-400" />
 
         {error && <p className="mb-4 text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
@@ -179,6 +215,7 @@ export default function PadPage() {
                       {duration(v.duration_s)}{v.archives.length ? ` · archives ${v.archives.join(', ')}` : ''}
                       {planned.length > done.length ? <span className="text-green-700"> · programmé le {planned.filter(e => !done.includes(e)).map(e => shortDay(e.day)).join(', ')}</span> : ''}
                       {expectedName(v) !== v.name ? <span className="text-blue-700"> · nouveau titre, à reporter dans DaVinci et les fichiers</span> : ''}
+                      {v.tags?.length ? <span className="text-gray-400"> · {v.tags.join(', ')}</span> : ''}
                       {v.note ? <span className="text-orange-700"> · {v.note.length > 60 ? v.note.slice(0, 60) + '…' : v.note}</span> : ''}
                     </p>
                   </button>
@@ -206,6 +243,10 @@ export default function PadPage() {
                       <label className="block text-sm font-semibold text-gray-900">Titre
                         <TitleInput value={v.title} onSave={title => update(v.id, { title })} />
                         {expectedName(v) !== v.name && <span className="block text-xs font-normal text-blue-700 mt-1">Pas encore reporté dans DaVinci ni dans les noms de fichiers (actuellement {v.name}).</span>}
+                      </label>
+                      <label className="block text-sm font-semibold text-gray-900">Mots-clés
+                        <TagsInput value={v.tags || []} onSave={tags => update(v.id, { tags })} />
+                        <span className="block text-xs font-normal text-gray-500 mt-1">Pour écrire la légende : lieu, époque, personnages, sujet, la blague… séparés par des virgules.</span>
                       </label>
                       <VerticalSlot v={v} uploading={uploading === v.id} onUpload={file => uploadVertical(v, file)} />
                       <label className="block text-sm font-semibold text-gray-900">Modif à faire / note
@@ -267,5 +308,83 @@ function VerticalSlot({ v, uploading, onUpload }) {
         {uploading ? 'Envoi en cours…' : v.vertical_url ? 'Remplacer le 9:16' : 'Déposer le 9:16'}
       </button>
     </div>
+  )
+}
+
+function splitTags(text) {
+  return [...new Set(text.split(',').map(t => t.trim().toLowerCase()).filter(Boolean))]
+}
+
+function TagsInput({ value, onSave }) {
+  const [draft, setDraft] = useState(value.join(', '))
+  useEffect(() => setDraft(value.join(', ')), [value.join(',')])
+  function save() {
+    const tags = splitTags(draft)
+    setDraft(tags.join(', '))
+    if (tags.join(',') !== value.join(',')) onSave(tags)
+  }
+  return <input value={draft} onChange={e => setDraft(e.target.value)} onBlur={save} onKeyDown={e => e.key === 'Enter' && e.target.blur()}
+    placeholder="plage, années 60, Bigouden, quiproquo…"
+    className="mt-1 w-full border rounded-lg px-3 py-2 text-sm font-normal text-gray-800 focus:outline-none focus:border-blue-400" />
+}
+
+// duration and a 640×480 poster image (at 1 s) read from the video file, in the browser
+function probe(file) {
+  return new Promise(resolve => {
+    const video = document.createElement('video')
+    const src = URL.createObjectURL(file)
+    const done = r => { URL.revokeObjectURL(src); resolve(r) }
+    video.muted = true; video.preload = 'auto'; video.src = src
+    video.onerror = () => done({})
+    video.onloadedmetadata = () => { video.currentTime = Math.min(1, (video.duration || 2) / 2) }
+    video.onseeked = () => {
+      const canvas = document.createElement('canvas')
+      canvas.width = 640; canvas.height = Math.round(640 * video.videoHeight / video.videoWidth) || 480
+      canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height)
+      canvas.toBlob(blob => done({ seconds: video.duration, thumb: blob }), 'image/jpeg', 0.85)
+    }
+    setTimeout(() => done({}), 15000)
+  })
+}
+
+function AddEpisode({ next, onAdd, onCancel }) {
+  const [title, setTitle] = useState('')
+  const [archives, setArchives] = useState('')
+  const [tags, setTags] = useState('')
+  const [note, setNote] = useState('')
+  const [file43, setFile43] = useState(null)
+  const [file916, setFile916] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const arch = archives.split(/[\s,;_]+/).map(a => a.replace(/\D/g, '')).filter(Boolean)
+  const preview = expectedName({ number: next, title: cleanTitle(title) || 'Titre', archives: arch })
+  async function submit(e) {
+    e.preventDefault()
+    if (!cleanTitle(title)) { setError('Il manque le titre.'); return }
+    if (!file43) { setError('Il manque le fichier 4:3.'); return }
+    setBusy(true); setError('')
+    try { await onAdd({ title, archives: arch, tags: splitTags(tags), note, file43, file916 }) }
+    catch (err) { setError(err.message); setBusy(false) }
+  }
+  const field = 'mt-1 w-full border rounded-lg px-3 py-2 text-sm font-normal text-gray-800 focus:outline-none focus:border-blue-400'
+  return (
+    <form onSubmit={submit} className="bg-white rounded-xl border p-4 mb-5 space-y-3">
+      <div className="flex justify-between items-baseline gap-2">
+        <h3 className="font-semibold text-gray-900">Nouvel épisode : #{String(next).padStart(2, '0')}</h3>
+        <button type="button" onClick={onCancel} className="text-sm text-gray-500 hover:text-gray-800">Annuler</button>
+      </div>
+      <p className="text-xs text-gray-500">Le fichier doit être fini : mixé à -14 LUFS et habillé (logo, fin éclair), exporté en 4:3 1440×1080 et en 9:16 1080×1920, comme dans le pack d'habillage. Il arrive dans « À voir » ; passez-le en PAD puis placez-le sur la grille.</p>
+      <div className="grid md:grid-cols-2 gap-3">
+        <label className="block text-sm font-semibold text-gray-900">Titre<input value={title} onChange={e => setTitle(e.target.value)} placeholder="COP 31" className={field} /></label>
+        <label className="block text-sm font-semibold text-gray-900">Numéros d'archives<input value={archives} onChange={e => setArchives(e.target.value)} placeholder="23318 (plusieurs : 24806, 7591)" className={field} /></label>
+        <label className="block text-sm font-semibold text-gray-900">Fichier 4:3 (obligatoire)<input type="file" accept="video/*" onChange={e => setFile43(e.target.files[0] || null)} className="mt-1 block w-full text-sm font-normal" /></label>
+        <label className="block text-sm font-semibold text-gray-900">Fichier 9:16 (pour les réels)<input type="file" accept="video/*" onChange={e => setFile916(e.target.files[0] || null)} className="mt-1 block w-full text-sm font-normal" /></label>
+      </div>
+      <label className="block text-sm font-semibold text-gray-900">Mots-clés<input value={tags} onChange={e => setTags(e.target.value)} placeholder="avion, Concorde, écologie, années 70…" className={field} /></label>
+      <label className="block text-sm font-semibold text-gray-900">Note<textarea rows={2} value={note} onChange={e => setNote(e.target.value)} placeholder="Ce qu'il faut savoir sur ce montage…" className={field} /></label>
+      <p className="text-xs text-gray-500 break-all">Nom : {preview}</p>
+      {error && <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
+      <button disabled={busy} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-40">{busy ? 'Envoi en cours… (laissez la page ouverte)' : 'Ajouter l\'épisode'}</button>
+    </form>
   )
 }
