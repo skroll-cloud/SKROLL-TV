@@ -46,10 +46,11 @@ export default function Stats() {
   const [posts, setPosts] = useState([])
   const [followers, setFollowers] = useState([])
   const [watchTotals, setWatchTotals] = useState({})
+  const [depart, setDepart] = useState([])  // views of each post 48 h after publication (view stats_depart)
   const [sort, setSort] = useState({ key: 'total', desc: true })  // episode table, click a column title to sort
 
   async function load() {
-    const [d, e, s, p, n, f, w] = await Promise.all([
+    const [d, e, s, p, n, f, w, k] = await Promise.all([
       supabase.from('stats_jours').select('*').order('jour', { ascending: false }).limit(60),
       supabase.from('stats_episodes').select('*').order('vues', { ascending: false }),
       supabase.from('stats_sources').select('*').order('visites', { ascending: false }).limit(15),
@@ -57,6 +58,7 @@ export default function Stats() {
       supabase.from('network_posts').select('*'),
       supabase.from('network_followers').select('*').order('day', { ascending: false }).limit(400),
       supabase.from('network_watch_totals').select('*'),
+      supabase.from('stats_depart').select('*'),
     ])
     if (d.data) setDays(d.data)
     if (e.data) setEpisodes(e.data)
@@ -65,6 +67,7 @@ export default function Stats() {
     if (n.data) setPosts(n.data)
     if (f.data) setFollowers(f.data)
     if (w.data) setWatchTotals(Object.fromEntries(w.data.map(r => [r.network, r])))
+    if (k.data) setDepart(k.data)
   }
 
   useEffect(() => {
@@ -111,6 +114,39 @@ export default function Stats() {
   const row = id => (rows[id] ||= { id, site: 0, total: 0, watch: 0 })
   episodes.forEach(e => { row(e.pad_id).site = e.vues; row(e.pad_id).total += e.vues; row(e.pad_id).watch += (e.secondes || 0) + (e.vues_sans_temps || 0) * perView })
   posts.filter(r => r.pad_id).forEach(r => { const o = row(r.pad_id); const k = r.network.replace(/_story$/, ''); o[k] = (o[k] || 0) + (r.views || 0); o.total += r.views || 0; o.watch += r.watch_seconds || 0 })
+  depart.filter(r => r.pad_id && rows[r.pad_id]).forEach(r => { const o = rows[r.pad_id]; o.d48 = (o.d48 || 0) + (r.vues_48h || 0) })
+  // weekly indicators: are views turning into followers and reactions? (episodes published in the window, followers gained in the window)
+  const followersAt = (network, day) => followers.find(r => r.network === network && r.day <= day && r.followers > 0)?.followers
+  const parisDay = t => new Date(t).toLocaleDateString('sv-SE', { timeZone: 'Europe/Paris' })
+  const week = (from, to) => {
+    const mine = posts.filter(r => !r.network.endsWith('_story') && r.published_at && new Date(r.published_at) >= from && new Date(r.published_at) < to)
+    const eps = [...new Set(mine.map(r => r.pad_id).filter(Boolean))]
+    const views = sum(mine, 'views')
+    const gains = NETWORKS.map(nw => { const a = followersAt(nw.id, parisDay(from)), b = followersAt(nw.id, parisDay(to)); return a != null && b != null ? b - a : null }).filter(g => g != null)
+    const gain = gains.length ? gains.reduce((n, g) => n + g, 0) : null
+    const d48 = eps.map(id => depart.filter(r => r.pad_id === id).reduce((n, r) => n + (r.vues_48h || 0), 0)).filter(Boolean)
+    return {
+      eps: eps.length, views, gain,
+      rate: gain != null && views ? (gain / views) * 1000 : null,
+      reactions: eps.length ? (sum(mine, 'comments') + sum(mine, 'shares')) / eps.length : null,
+      d48: d48.length ? d48.reduce((n, v) => n + v, 0) / d48.length : null, d48n: d48.length,
+    }
+  }
+  const now = new Date()
+  const thisWeek = week(new Date(now - 7 * 86400000), now)
+  const lastWeek = week(new Date(now - 14 * 86400000), new Date(now - 7 * 86400000))
+  const firstFollowers = NETWORKS.reduce((n, nw) => n + (followers.filter(r => r.network === nw.id && r.followers > 0).at(-1)?.followers || 0), 0)
+  const nowFollowers = NETWORKS.reduce((n, nw) => n + (followers.find(r => r.network === nw.id && r.followers > 0)?.followers || 0), 0)
+  const allViews = net.reduce((n, nw) => n + nw.views, 0)
+  const fmt = (v, digits = 1) => v == null ? '–' : v.toFixed(digits).replace('.', ',')
+  const indicators = [
+    { label: 'Abonnés gagnés pour 1 000 vues', now: thisWeek.rate, before: lastWeek.rate, digits: 1,
+      note: `${thisWeek.gain ?? '–'} abonnés pour ${thisWeek.views} vues cette semaine. Depuis le lancement : ${fmt(allViews ? ((nowFollowers - firstFollowers) / allViews) * 1000 : null)} (${nowFollowers - firstFollowers} abonnés, ${allViews} vues). Objectif : 2.` },
+    { label: 'Commentaires + partages par épisode', now: thisWeek.reactions, before: lastWeek.reactions, digits: 1,
+      note: `Tous réseaux, épisodes publiés dans la semaine (${thisWeek.eps}). Facebook ne donne pas ces deux chiffres à Metricool.` },
+    { label: 'Vues dans les 48 premières heures', now: thisWeek.d48, before: lastWeek.d48, digits: 0,
+      note: thisWeek.d48n ? `Moyenne par épisode, tous réseaux (${thisWeek.d48n} épisode${thisWeek.d48n > 1 ? 's' : ''} mesuré${thisWeek.d48n > 1 ? 's' : ''}). Relevé gardé chaque jour depuis le 10 nov.` : 'Relevé gardé chaque jour depuis le 10 nov. : les premiers chiffres arrivent dans 2 jours.' },
+  ]
   const sortValue = e => sort.key === 'number' ? titles[e.id]?.number ?? 0 : e[sort.key] ?? -1
   const perEpisode = Object.values(rows).sort((a, b) => (sortValue(a) - sortValue(b)) * (sort.desc ? -1 : 1) || b.total - a.total)
   const Sortable = ({ k, children, className = '' }) => (
@@ -163,6 +199,25 @@ export default function Stats() {
         </section>
 
         <section className="bg-white rounded-xl border p-4 mb-6">
+          <h3 className="font-semibold text-gray-900">Indicateurs de la semaine</h3>
+          <p className="text-xs text-gray-500 mb-3">Les vues ne suffisent pas : est-ce qu'elles se transforment en abonnés et en réactions ? 7 derniers jours, comparés aux 7 jours d'avant (épisodes publiés dans la période).</p>
+          <div className="grid md:grid-cols-3 gap-3">
+            {indicators.map(i => {
+              const up = i.now != null && i.before != null ? i.now - i.before : null
+              return (
+                <div key={i.label} className="rounded-lg border p-3">
+                  <p className="text-sm font-medium text-gray-900">{i.label}</p>
+                  <p className="text-3xl font-bold tabular-nums mt-1">{fmt(i.now, i.digits)}
+                    {up != null && <span className={`text-sm font-medium ml-2 ${up > 0 ? 'text-green-600' : up < 0 ? 'text-red-600' : 'text-gray-500'}`}>{up > 0 ? '↑' : up < 0 ? '↓' : '='} {fmt(i.before, i.digits)} la semaine d'avant</span>}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1">{i.note}</p>
+                </div>
+              )
+            })}
+          </div>
+        </section>
+
+        <section className="bg-white rounded-xl border p-4 mb-6">
           <div className="flex flex-wrap items-baseline justify-between gap-2 mb-3">
             <h3 className="font-semibold text-gray-900">Temps de visionnage</h3>
             <p className="text-2xl font-bold tabular-nums">{duration(watchAll)} <span className="text-xs font-normal text-gray-500">au total, partout</span></p>
@@ -181,7 +236,7 @@ export default function Stats() {
               </div>
             ))}
           </div>
-          <p className="text-xs text-gray-500 mt-2">Site : secondes réellement jouées (en direct, sans les retours en arrière) depuis le 5 novembre au soir ; avant, estimé avec la moyenne par vue des réseaux. Instagram et Facebook : chiffres Metricool, par vidéo. YouTube : Metricool ne le donne pas, total de la chaîne recopié depuis YouTube Studio.</p>
+          <p className="text-xs text-gray-500 mt-2">Site : secondes réellement jouées (en direct, sans les retours en arrière) depuis le 5 novembre au soir ; avant, estimé avec la moyenne par vue des réseaux. Instagram et Facebook : chiffres Metricool, par vidéo. YouTube : Metricool ne le donne pas, recopié vidéo par vidéo depuis YouTube Studio (vues × durée moyenne).</p>
         </section>
 
         <div className="grid md:grid-cols-2 gap-6">
@@ -215,11 +270,11 @@ export default function Stats() {
 
         <section className="bg-white rounded-xl border p-4 mt-6 overflow-x-auto">
           <h3 className="font-semibold text-gray-900 mb-1">Vues par épisode, partout</h3>
-          <p className="text-xs text-gray-500 mb-3">Temps regardé : site + Instagram + Facebook (YouTube et TikTok ne donnent pas le détail par vidéo).</p>
+          <p className="text-xs text-gray-500 mb-3">48 h : vues sur les réseaux dans les 48 premières heures (relevé depuis le 10 nov.). Temps regardé : site + Instagram + Facebook + YouTube (TikTok ne le donne pas).</p>
           {!perEpisode.length && <p className="text-sm text-gray-400">Aucune vue pour l'instant.</p>}
           {!!perEpisode.length && (
             <table className="w-full text-sm">
-              <thead><tr className="text-left text-xs text-gray-500"><Sortable k="number" className="py-1">Épisode</Sortable><Sortable k="site" className="text-right">Site</Sortable>{NETWORKS.map(nw => <Sortable key={nw.id} k={nw.id} className="text-right">{nw.label}</Sortable>)}<Sortable k="total" className="text-right">Total</Sortable><Sortable k="watch" className="text-right pl-2">Temps regardé</Sortable></tr></thead>
+              <thead><tr className="text-left text-xs text-gray-500"><Sortable k="number" className="py-1">Épisode</Sortable><Sortable k="site" className="text-right">Site</Sortable>{NETWORKS.map(nw => <Sortable key={nw.id} k={nw.id} className="text-right">{nw.label}</Sortable>)}<Sortable k="total" className="text-right">Total</Sortable><Sortable k="d48" className="text-right pl-2">48 h</Sortable><Sortable k="watch" className="text-right pl-2">Temps regardé</Sortable></tr></thead>
               <tbody className="divide-y">
                 {perEpisode.map(e => (
                   <tr key={e.id}>
@@ -227,6 +282,7 @@ export default function Stats() {
                     <td className="text-right tabular-nums px-1">{e.site}</td>
                     {NETWORKS.map(nw => <td key={nw.id} className="text-right tabular-nums px-1">{e[nw.id] ?? '–'}</td>)}
                     <td className="text-right tabular-nums font-semibold pl-1">{e.total}</td>
+                    <td className="text-right tabular-nums pl-2 text-gray-600">{e.d48 ?? '–'}</td>
                     <td className="text-right tabular-nums pl-2 whitespace-nowrap">{e.watch ? duration(e.watch) : '–'}</td>
                   </tr>
                 ))}
