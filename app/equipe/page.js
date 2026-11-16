@@ -68,9 +68,10 @@ const NAV_ITEMS = [
   { id: 'ideas', label: 'Idées' },
   { id: 'contacts', label: 'Contacts' },
   { id: 'stats', label: 'Statistiques' },
+  { id: 'reseau', label: 'Réseau Instagram' },
   { id: '?modifier', label: "Page d'accueil (modifier)" },
 ]
-const NAV_ROUTES = ['pad', 'diffusion', 'habillage', 'stats', '?modifier']
+const NAV_ROUTES = ['pad', 'diffusion', 'habillage', 'stats', 'reseau', '?modifier']
 
 export default function Home() {
   const router = useRouter()
