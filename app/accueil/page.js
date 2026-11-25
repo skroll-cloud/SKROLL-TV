@@ -312,8 +312,6 @@ function Feed({ items, phone, random, onRandom, onOrdered }) {
   const ids = items.map(v => v.id).join()
   useEffect(() => { box.current.scrollTop = 0; setCurrent(0) }, [ids])
 
-  const now = useRef(current)
-  now.current = current
   const mutedRef = useRef(muted)
   mutedRef.current = muted
   useEffect(() => {
@@ -325,16 +323,6 @@ function Feed({ items, phone, random, onRandom, onOrdered }) {
       v.play().catch(() => { v.muted = true; setBlocked(true); setMuted(true); v.play().catch(() => {}) })
     })
     setProgress(0)
-    // Safari sur iPhone ignore preload : on lance la suivante en muet un instant puis on la met en pause au début,
-    // pour qu'elle soit chargée et ait sa première image quand on y arrive
-    const n = current + 1, next = vids.current[n]
-    if (next && next.readyState < 3) {
-      next.muted = true
-      next.play().then(() => {
-        if (now.current === n) { next.muted = mutedRef.current; return }   // on y est déjà : elle continue
-        next.pause(); next.currentTime = 0; next.muted = mutedRef.current
-      }).catch(() => {})
-    }
   }, [current, ids])
 
   // React does not update the muted property of a <video> after mount: set it on the elements directly, inside the user's gesture
@@ -410,9 +398,12 @@ function Feed({ items, phone, random, onRandom, onOrdered }) {
               {Math.abs(i - current) <= 1
                 ? <video ref={el => { vids.current[i] = el; if (el) el.muted = muted }} src={srcOf(v)} poster={v.thumb_url || undefined} muted={muted} playsInline preload="auto"
                     onClick={e => (e.target.paused ? e.target.play() : e.target.pause())}
-                    onTimeUpdate={e => { if (i !== current) return; setProgress(e.target.currentTime / (e.target.duration || 1)); watched(e, v, 'fil') }}
+                    onTimeUpdate={e => {
+                      if (e.target.currentTime > 0.05) setShown(v.id, true)   // une image est vraiment affichée ('playing' arrive trop tôt sur iPhone)
+                      if (i !== current) return
+                      setProgress(e.target.currentTime / (e.target.duration || 1)); watched(e, v, 'fil')
+                    }}
                     onLoadStart={() => setShown(v.id, false)}
-                    onPlaying={() => setShown(v.id, true)}
                     onEnded={() => go(i + 1)}
                     className="h-full w-full object-contain cursor-pointer" />
                 : null}
