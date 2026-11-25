@@ -312,14 +312,29 @@ function Feed({ items, phone, random, onRandom, onOrdered }) {
   const ids = items.map(v => v.id).join()
   useEffect(() => { box.current.scrollTop = 0; setCurrent(0) }, [ids])
 
+  const now = useRef(current)
+  now.current = current
+  const mutedRef = useRef(muted)
+  mutedRef.current = muted
   useEffect(() => {
     vids.current.forEach((v, i) => {
       if (!v) return
       if (i !== current) { v.pause(); return }
       v.currentTime = 0
+      v.muted = mutedRef.current
       v.play().catch(() => { v.muted = true; setBlocked(true); setMuted(true); v.play().catch(() => {}) })
     })
     setProgress(0)
+    // Safari sur iPhone ignore preload : on lance la suivante en muet un instant puis on la met en pause au début,
+    // pour qu'elle soit chargée et ait sa première image quand on y arrive
+    const n = current + 1, next = vids.current[n]
+    if (next && next.readyState < 3) {
+      next.muted = true
+      next.play().then(() => {
+        if (now.current === n) { next.muted = mutedRef.current; return }   // on y est déjà : elle continue
+        next.pause(); next.currentTime = 0; next.muted = mutedRef.current
+      }).catch(() => {})
+    }
   }, [current, ids])
 
   // React does not update the muted property of a <video> after mount: set it on the elements directly, inside the user's gesture
@@ -352,37 +367,25 @@ function Feed({ items, phone, random, onRandom, onOrdered }) {
   const wrap = useRef(null)
   const srcOf = v => (phone && v.vertical_url ? v.vertical_url : v.file_url)
 
-  // iPhone : seule une <video> peut passer en plein écran (pas le fil). Pour enchaîner sans sortir du plein écran,
-  // on garde le même élément et on lui donne l'épisode suivant ; nativeFs.idx = l'épisode qu'il joue.
-  // En sortant, le fil se cale sur cet épisode.
-  const nativeFs = useRef(null)
+  // iPhone : Safari ne sait mettre en plein écran qu'une <video> seule, pas le fil (la suivante restait derrière, écran noir).
+  // On y fait donc un plein écran « maison » : le fil passe par-dessus la page, et l'enchaînement reste celui du fil.
+  const [pseudo, setPseudo] = useState(false)
+  const isFull = full || pseudo
   function toggleFull() {
     if (document.fullscreenElement) return document.exitFullscreen()
+    if (pseudo) return setPseudo(false)
     if (wrap.current.requestFullscreen) return wrap.current.requestFullscreen()
-    const el = vids.current[current]
-    if (!el?.webkitEnterFullscreen) return
-    const own = current
-    nativeFs.current = { el, idx: own }
-    el.addEventListener('webkitendfullscreen', () => {
-      const n = nativeFs.current?.idx ?? own
-      nativeFs.current = null
-      if (n === own) return
-      el.src = srcOf(items[own]); el.poster = items[own].thumb_url || ''
-      box.current.scrollTop = n * box.current.clientHeight   // onScroll met current à jour, l'effet lance l'épisode
-    }, { once: true })
-    el.webkitEnterFullscreen()
+    setPseudo(true)
   }
+  useEffect(() => {
+    document.body.style.overflow = pseudo ? 'hidden' : ''
+    requestAnimationFrame(() => box.current && (box.current.scrollTop = current * box.current.clientHeight))
+    return () => { document.body.style.overflow = '' }
+  }, [pseudo])   // eslint-disable-line react-hooks/exhaustive-deps
 
-  function nextInNativeFs(el) {
-    const fs = nativeFs.current
-    if (!fs || fs.el !== el) return false
-    fs.idx = (fs.idx + 1) % items.length
-    const v = items[fs.idx]
-    el.poster = v.thumb_url || ''
-    el.src = srcOf(v)
-    el.play().catch(() => {})
-    return true
-  }
+  // une vidéo garde sa vignette par-dessus tant qu'elle n'a pas affiché d'image : plus d'écran noir pendant le chargement
+  const [live, setLive] = useState({})
+  const setShown = (id, on) => setLive(l => (!!l[id] === on ? l : { ...l, [id]: on }))
 
   function go(i) {
     const n = (i + items.length) % items.length
@@ -399,23 +402,22 @@ function Feed({ items, phone, random, onRandom, onOrdered }) {
 
   return (
     <div>
-      <div ref={wrap} className={`relative bg-black ${phone ? '-mx-4' : ''}`}>
+      <div ref={wrap} className={`${pseudo ? 'fixed inset-0 z-50' : `relative ${phone ? '-mx-4' : ''}`} bg-black`}>
         <div ref={box} tabIndex={0} onKeyDown={onKey} onScroll={onScroll} aria-label="Épisodes, flèches haut et bas pour changer"
-          className={`${full ? 'h-screen' : phone ? 'h-[85svh]' : 'aspect-[4/3]'} w-full overflow-y-scroll snap-y snap-mandatory bg-black rounded-sm focus:outline-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden`}>
+          className={`${pseudo ? 'h-[100dvh]' : full ? 'h-screen' : phone ? 'h-[85svh]' : 'aspect-[4/3]'} w-full overflow-y-scroll snap-y snap-mandatory bg-black rounded-sm focus:outline-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden`}>
           {items.map((v, i) => (
             <div key={v.id + (v.day || '')} data-i={i} className="relative h-full w-full snap-start snap-always">
               {Math.abs(i - current) <= 1
                 ? <video ref={el => { vids.current[i] = el; if (el) el.muted = muted }} src={srcOf(v)} poster={v.thumb_url || undefined} muted={muted} playsInline preload="auto"
                     onClick={e => (e.target.paused ? e.target.play() : e.target.pause())}
-                    onTimeUpdate={e => {
-                      if (i !== current) return
-                      setProgress(e.target.currentTime / (e.target.duration || 1))
-                      const fs = nativeFs.current
-                      watched(e, fs && fs.el === e.target ? items[fs.idx] : v, 'fil')
-                    }}
-                    onEnded={e => { if (!nextInNativeFs(e.target)) go(i + 1) }}
+                    onTimeUpdate={e => { if (i !== current) return; setProgress(e.target.currentTime / (e.target.duration || 1)); watched(e, v, 'fil') }}
+                    onLoadStart={() => setShown(v.id, false)}
+                    onPlaying={() => setShown(v.id, true)}
+                    onEnded={() => go(i + 1)}
                     className="h-full w-full object-contain cursor-pointer" />
-                : v.thumb_url ? <img src={v.thumb_url} alt="" className="h-full w-full object-contain" /> : null}
+                : null}
+              {v.thumb_url && <img src={v.thumb_url} alt="" aria-hidden
+                className={`pointer-events-none absolute inset-0 h-full w-full object-contain bg-black transition-opacity duration-200 ${Math.abs(i - current) <= 1 && live[v.id] ? 'opacity-0' : 'opacity-100'}`} />}
               <div className="pointer-events-none absolute inset-x-0 bottom-0 p-3 md:p-4" style={{ background: 'linear-gradient(transparent, rgba(0,0,0,.75))' }}>
                 <p className="text-lg md:text-xl font-semibold text-white">{num(v)}{v.day && <span className="text-sm font-normal" style={{ color: C.amber }}> · diffusé le {longDate(v.day)}</span>}</p>
               </div>
@@ -433,16 +435,16 @@ function Feed({ items, phone, random, onRandom, onOrdered }) {
           <button data-sound onClick={e => { e.stopPropagation(); sound(muted) }} className="rounded-full px-3 py-1 text-sm font-semibold" style={muted ? { background: C.neon, color: C.film } : { background: 'rgba(0,0,0,.6)', color: C.tube }}>
             {muted ? 'Activer le son' : 'Couper le son'}
           </button>
-          <button onClick={toggleFull} aria-label={full ? 'Quitter le plein écran' : 'Plein écran'} title={full ? 'Quitter le plein écran' : 'Plein écran'}
+          <button onClick={toggleFull} aria-label={isFull ? 'Quitter le plein écran' : 'Plein écran'} title={isFull ? 'Quitter le plein écran' : 'Plein écran'}
             className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: 'rgba(0,0,0,.6)', color: C.tube }}>
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-              {full
+              {isFull
                 ? <path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" />
                 : <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />}
             </svg>
           </button>
         </div>
-        <div className={`absolute top-1/2 -translate-y-1/2 ${full ? 'right-4' : '-right-1 md:-right-12'} hidden sm:flex flex-col gap-2`}>
+        <div className={`absolute top-1/2 -translate-y-1/2 ${isFull ? 'right-4' : '-right-1 md:-right-12'} hidden sm:flex flex-col gap-2`}>
           <button onClick={() => go(current - 1)} aria-label="Épisode précédent" className="w-9 h-9 rounded-full font-bold" style={{ background: C.tube, color: C.film }}>↑</button>
           <button onClick={() => go(current + 1)} aria-label="Épisode suivant" className="w-9 h-9 rounded-full font-bold" style={{ background: C.neon, color: C.film }}>↓</button>
         </div>
