@@ -293,6 +293,8 @@ export default function Accueil() {
 // Player central en défilement vertical, comme un fil Instagram : une vidéo par écran (scroll-snap),
 // celle qui est à l'écran joue, et à la fin la suivante monte par le bas. Le son est actif par défaut ; si le navigateur
 // refuse la lecture automatique avec le son (avant tout clic sur la page), on joue sans le son et on le rétablit au premier geste.
+const TAIL = 0.35   // secondes de noir à la fin de chaque épisode (mesuré : 0,26 à 0,36 s)
+
 function Feed({ items, phone, random, onRandom, onOrdered }) {
   const box = useRef(null)
   const vids = useRef([])
@@ -323,6 +325,15 @@ function Feed({ items, phone, random, onRandom, onOrdered }) {
       v.play().catch(() => { v.muted = true; setBlocked(true); setMuted(true); v.play().catch(() => {}) })
     })
     setProgress(0)
+    // les épisodes finissent par ~0,3 s de noir (habillage) : on lance la suivante dès que ce noir commence
+    let raf, fired = false
+    const tick = () => {
+      const v = vids.current[current]
+      if (!fired && v && !v.paused && v.duration && v.duration - v.currentTime <= TAIL) { fired = true; go(current + 1) }
+      raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
   }, [current, ids])
 
   // React does not update the muted property of a <video> after mount: set it on the elements directly, inside the user's gesture
@@ -404,7 +415,8 @@ function Feed({ items, phone, random, onRandom, onOrdered }) {
                       setProgress(e.target.currentTime / (e.target.duration || 1)); watched(e, v, 'fil')
                     }}
                     onLoadStart={() => setShown(v.id, false)}
-                    onEnded={() => go(i + 1)}
+                    onPlaying={e => e.target.requestVideoFrameCallback?.(() => setShown(v.id, true))}   // dès la 1re image peinte
+                    onEnded={() => i === current && go(i + 1)}   // sinon on est déjà passé à la suivante : ne pas la relancer depuis le début
                     className="h-full w-full object-contain cursor-pointer" />
                 : null}
               {v.thumb_url && <img src={v.thumb_url} alt="" aria-hidden
