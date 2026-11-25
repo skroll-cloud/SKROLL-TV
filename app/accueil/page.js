@@ -326,14 +326,17 @@ function Feed({ items, phone, random, onRandom, onOrdered }) {
     })
     setProgress(0)
     // les épisodes finissent par ~0,3 s de noir (habillage) : on lance la suivante dès que ce noir commence
+    // (vérifié à chaque image, et à chaque timeupdate au cas où l'onglet ne dessine pas)
     let raf, fired = false
-    const tick = () => {
+    const check = () => {
       const v = vids.current[current]
       if (!fired && v && !v.paused && v.duration && v.duration - v.currentTime <= TAIL) { fired = true; go(current + 1) }
-      raf = requestAnimationFrame(tick)
     }
+    const tick = () => { check(); raf = requestAnimationFrame(tick) }
     raf = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(raf)
+    const v = vids.current[current]
+    v?.addEventListener('timeupdate', check)
+    return () => { cancelAnimationFrame(raf); v?.removeEventListener('timeupdate', check) }
   }, [current, ids])
 
   // React does not update the muted property of a <video> after mount: set it on the elements directly, inside the user's gesture
