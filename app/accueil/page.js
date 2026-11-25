@@ -350,10 +350,38 @@ function Feed({ items, phone, random, onRandom, onOrdered }) {
   }, [current])
 
   const wrap = useRef(null)
+  const srcOf = v => (phone && v.vertical_url ? v.vertical_url : v.file_url)
+
+  // iPhone : seule une <video> peut passer en plein écran (pas le fil). Pour enchaîner sans sortir du plein écran,
+  // on garde le même élément et on lui donne l'épisode suivant ; nativeFs.idx = l'épisode qu'il joue.
+  // En sortant, le fil se cale sur cet épisode.
+  const nativeFs = useRef(null)
   function toggleFull() {
     if (document.fullscreenElement) return document.exitFullscreen()
     if (wrap.current.requestFullscreen) return wrap.current.requestFullscreen()
-    vids.current[current]?.webkitEnterFullscreen?.()   // iPhone : seule la vidéo peut passer en plein écran
+    const el = vids.current[current]
+    if (!el?.webkitEnterFullscreen) return
+    const own = current
+    nativeFs.current = { el, idx: own }
+    el.addEventListener('webkitendfullscreen', () => {
+      const n = nativeFs.current?.idx ?? own
+      nativeFs.current = null
+      if (n === own) return
+      el.src = srcOf(items[own]); el.poster = items[own].thumb_url || ''
+      box.current.scrollTop = n * box.current.clientHeight   // onScroll met current à jour, l'effet lance l'épisode
+    }, { once: true })
+    el.webkitEnterFullscreen()
+  }
+
+  function nextInNativeFs(el) {
+    const fs = nativeFs.current
+    if (!fs || fs.el !== el) return false
+    fs.idx = (fs.idx + 1) % items.length
+    const v = items[fs.idx]
+    el.poster = v.thumb_url || ''
+    el.src = srcOf(v)
+    el.play().catch(() => {})
+    return true
   }
 
   function go(i) {
@@ -377,10 +405,15 @@ function Feed({ items, phone, random, onRandom, onOrdered }) {
           {items.map((v, i) => (
             <div key={v.id + (v.day || '')} data-i={i} className="relative h-full w-full snap-start snap-always">
               {Math.abs(i - current) <= 1
-                ? <video ref={el => { vids.current[i] = el; if (el) el.muted = muted }} src={phone && v.vertical_url ? v.vertical_url : v.file_url} poster={v.thumb_url || undefined} muted={muted} playsInline preload="auto"
+                ? <video ref={el => { vids.current[i] = el; if (el) el.muted = muted }} src={srcOf(v)} poster={v.thumb_url || undefined} muted={muted} playsInline preload="auto"
                     onClick={e => (e.target.paused ? e.target.play() : e.target.pause())}
-                    onTimeUpdate={e => { if (i !== current) return; setProgress(e.target.currentTime / (e.target.duration || 1)); watched(e, v, 'fil') }}
-                    onEnded={() => go(i + 1)}
+                    onTimeUpdate={e => {
+                      if (i !== current) return
+                      setProgress(e.target.currentTime / (e.target.duration || 1))
+                      const fs = nativeFs.current
+                      watched(e, fs && fs.el === e.target ? items[fs.idx] : v, 'fil')
+                    }}
+                    onEnded={e => { if (!nextInNativeFs(e.target)) go(i + 1) }}
                     className="h-full w-full object-contain cursor-pointer" />
                 : v.thumb_url ? <img src={v.thumb_url} alt="" className="h-full w-full object-contain" /> : null}
               <div className="pointer-events-none absolute inset-x-0 bottom-0 p-3 md:p-4" style={{ background: 'linear-gradient(transparent, rgba(0,0,0,.75))' }}>
