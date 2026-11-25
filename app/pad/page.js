@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@supabase/supabase-js'
+import { webReady } from '../../lib/faststart.mjs'   // vidéos « optimisées web » : la lecture démarre tout de suite sur le site
 
 const supabase = createClient(
   'https://riotdlbdywxuouvdgqpt.supabase.co',
@@ -94,12 +95,35 @@ export default function PadPage() {
     setUploading(v.id)
     const safe = file.name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\w.-]/g, '_')
     const filePath = `pad/916/${Date.now()}-${safe}`
-    const { error } = await supabase.storage.from('Videos').upload(filePath, file, { cacheControl: '3600', upsert: false })
+    const { error } = await supabase.storage.from('Videos').upload(filePath, await webReady(file), { cacheControl: '3600', upsert: false })
     if (error) setError(`Envoi du 9:16 impossible : ${error.message}`)
     else {
       const { data } = supabase.storage.from('Videos').getPublicUrl(filePath)
       await update(v.id, { vertical_url: data.publicUrl, vertical_name: file.name, vertical_uploaded_at: new Date().toISOString(), vertical_uploaded_by: currentUser })
     }
+    setUploading(null)
+  }
+
+  // someone re-exported the episode with their own changes: new 4:3 at a new path (no overwrite), same name, new duration and poster
+  async function uploadMain(v, file) {
+    if (!file) return
+    setUploading(v.id)
+    try {
+      const stamp = new Date().toISOString().slice(0, 16).replace(/[-:]/g, '').replace('T', '-')
+      const path = `pad/${stamp}-_${v.name.slice(1)}.mp4`
+      const up = await supabase.storage.from('Videos').upload(path, await webReady(file), { cacheControl: '3600', upsert: false })
+      if (up.error) throw new Error(`Envoi du 4:3 impossible : ${up.error.message}`)
+      const url = p => supabase.storage.from('Videos').getPublicUrl(p).data.publicUrl
+      const { seconds, thumb } = await probe(file)
+      const patch = { file_url: url(path), file_size: file.size, file_uploaded_at: new Date().toISOString(), uploaded_by: currentUser }
+      if (seconds) patch.duration_s = Math.round(seconds * 100) / 100
+      if (thumb) {
+        const tp = `pad/vignettes/v${v.number}-${stamp}.jpg`
+        const t = await supabase.storage.from('Videos').upload(tp, thumb, { contentType: 'image/jpeg', upsert: false })
+        if (!t.error) patch.thumb_url = url(tp)
+      }
+      await update(v.id, patch)
+    } catch (e) { setError(e.message) }
     setUploading(null)
   }
 
@@ -110,7 +134,7 @@ export default function PadPage() {
     const name = expectedName(v)
     const stamp = new Date().toISOString().slice(0, 16).replace(/[-:]/g, '').replace('T', '-')
     const path = `pad/${stamp}-_${name.slice(1)}.mp4`
-    const up = await supabase.storage.from('Videos').upload(path, file43, { cacheControl: '3600', upsert: false })
+    const up = await supabase.storage.from('Videos').upload(path, await webReady(file43), { cacheControl: '3600', upsert: false })
     if (up.error) throw new Error(`Envoi du 4:3 impossible : ${up.error.message}`)
     const url = p => supabase.storage.from('Videos').getPublicUrl(p).data.publicUrl
     const { seconds, thumb } = await probe(file43)
@@ -123,7 +147,7 @@ export default function PadPage() {
     let vertical = {}
     if (file916) {
       const vp = `pad/916/${stamp}-_${name.slice(1)}.mp4`
-      const u = await supabase.storage.from('Videos').upload(vp, file916, { cacheControl: '3600', upsert: false })
+      const u = await supabase.storage.from('Videos').upload(vp, await webReady(file916), { cacheControl: '3600', upsert: false })
       if (u.error) throw new Error(`Envoi du 9:16 impossible : ${u.error.message}`)
       vertical = { vertical_url: url(vp), vertical_name: `${name}.mp4`, vertical_uploaded_at: new Date().toISOString(), vertical_uploaded_by: currentUser }
     }
@@ -248,12 +272,12 @@ export default function PadPage() {
                         <TagsInput value={v.tags || []} onSave={tags => update(v.id, { tags })} />
                         <span className="block text-xs font-normal text-gray-500 mt-1">Pour écrire la légende : lieu, époque, personnages, sujet, la blague… séparés par des virgules.</span>
                       </label>
+                      <MainSlot v={v} uploading={uploading === v.id} onUpload={file => uploadMain(v, file)} />
                       <VerticalSlot v={v} uploading={uploading === v.id} onUpload={file => uploadVertical(v, file)} />
                       <label className="block text-sm font-semibold text-gray-900">Modif à faire / note
                         <NoteInput value={v.note || ''} onSave={note => update(v.id, { note })} />
                       </label>
                       <div className="text-xs text-gray-500 space-y-1">
-                        <p className="break-all">Fichier : {v.file_name}</p>
                         {reuses(v.id).map(e => <p key={e.id}>Repris dans une {e.format === 'compil' ? 'compil' : 'publication'} le {shortDay(e.day)}</p>)}
                         {planned.map(e => <p key={e.id}>Programmé le {shortDay(e.day)} à {e.post_time}</p>)}
                         {v.status === 'pad' && !planned.length && <button onClick={() => router.push('/diffusion')} className="text-blue-600 hover:underline">Placer dans le planning →</button>}
@@ -291,6 +315,22 @@ function NoteInput({ value, onSave }) {
     className="mt-1 w-full border rounded-lg px-3 py-2 text-sm font-normal text-gray-800 focus:outline-none focus:border-blue-400" />
 }
 
+function MainSlot({ v, uploading, onUpload }) {
+  const input = useRef(null)
+  return (
+    <div>
+      <p className="text-sm font-semibold text-gray-900 mb-1">Version 4:3</p>
+      <p className="text-xs text-gray-500 break-all">{v.file_name}{v.uploaded_by ? `, déposé par ${v.uploaded_by}` : ''}{v.file_uploaded_at ? ` le ${new Date(v.file_uploaded_at).toLocaleDateString('fr-FR')}` : ''}</p>
+      <input ref={input} type="file" accept="video/*" className="hidden"
+        onChange={ev => { const f = ev.target.files[0]; ev.target.value = ''; if (f && confirm(`Remplacer le 4:3 de « ${v.title} » par ${f.name} ? Le site public et le planning utiliseront ce nouveau fichier.`)) onUpload(f) }} />
+      <button onClick={() => input.current.click()} disabled={uploading}
+        className="mt-2 bg-gray-900 text-white px-3 py-1.5 rounded-lg text-sm font-medium disabled:opacity-40">
+        {uploading ? 'Envoi en cours…' : v.file_url ? 'Remplacer le 4:3' : 'Déposer le 4:3'}
+      </button>
+    </div>
+  )
+}
+
 function VerticalSlot({ v, uploading, onUpload }) {
   const input = useRef(null)
   return (
@@ -302,7 +342,7 @@ function VerticalSlot({ v, uploading, onUpload }) {
             <p className="text-xs text-gray-500 mt-1 break-all">{v.vertical_name}{v.vertical_uploaded_by ? `, déposé par ${v.vertical_uploaded_by}` : ''}{v.vertical_uploaded_at ? ` le ${new Date(v.vertical_uploaded_at).toLocaleDateString('fr-FR')}` : ''}</p>
           </>
         : <p className="text-xs text-orange-700">Pas encore de 9:16. Les réels du planning publieront celui-ci.</p>}
-      <input ref={input} type="file" accept="video/*" className="hidden" onChange={ev => { onUpload(ev.target.files[0]); ev.target.value = '' }} />
+      <input ref={input} type="file" accept="video/*" className="hidden" onChange={ev => { const f = ev.target.files[0]; ev.target.value = ''; if (f && (!v.vertical_url || confirm(`Remplacer le 9:16 de « ${v.title} » par ${f.name} ? Les réels du planning publieront ce nouveau fichier.`))) onUpload(f) }} />
       <button onClick={() => input.current.click()} disabled={uploading}
         className="mt-2 bg-gray-900 text-white px-3 py-1.5 rounded-lg text-sm font-medium disabled:opacity-40">
         {uploading ? 'Envoi en cours…' : v.vertical_url ? 'Remplacer le 9:16' : 'Déposer le 9:16'}
