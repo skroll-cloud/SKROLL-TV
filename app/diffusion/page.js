@@ -124,7 +124,7 @@ export default function DiffusionPage() {
   async function load() {
     const [s, v, a] = await Promise.all([
       supabase.from('broadcast_schedule').select('*').order('day', { ascending: true }).order('created_at', { ascending: true }),
-      supabase.from('pad_videos').select('id,number,title,archives,file_url,status,vertical_url,vertical_name').order('number'),
+      supabase.from('pad_videos').select('id,number,title,archives,file_url,status,vertical_url,vertical_name,tags').order('number'),
       supabase.from('agent_status').select('*').eq('id', 'metricool').maybeSingle()
     ])
     if (a.data) setAgent(a.data)
@@ -138,6 +138,10 @@ export default function DiffusionPage() {
   const unscheduled = videos.filter(v => isValidated(v) && !usedIds.has(v.id))
   const pickable = videos
   const locked = e => !!e.metricool_status
+  // already sent to Metricool AND its time has passed: nothing can change any more
+  const published = e => locked(e) && new Date(`${e.day}T${e.post_time || '18:00'}`) <= new Date()
+  // a post already sent to Metricool keeps its title, text and keywords editable until it goes out: Claude carries the change over
+  const resync = () => ({ publish_requested_at: new Date().toISOString(), publish_requested_by: currentUser, publish_error: null })
   const parentOf = e => e.parent_id && entries.find(x => x.id === e.parent_id)
   // file a post will publish: its own final, else (reel) the episode's 9:16 from the Épisodes page; a story reuses its reel's
   const ownFinal = e => e.final_url || (e.format === 'short' && byId[e.pad_ids[0]]?.vertical_url) || null
@@ -166,6 +170,18 @@ export default function DiffusionPage() {
     if (error) { setError('Pas enregistré. Vérifiez la connexion et réessayez.'); load() }
     // a reel's story repost always follows it, the next day
     if (patch.day) for (const story of entries.filter(e => e.parent_id === id)) await updateEntry(story.id, { day: nextDay(patch.day) })
+  }
+
+  // keywords belong to the episode (pad_videos), shared with the Épisodes page
+  async function updateEpisode(id, patch) {
+    setVideos(vs => vs.map(v => v.id === id ? { ...v, ...patch } : v))
+    const { error } = await supabase.from('pad_videos').update(patch).eq('id', id)
+    if (error) { setError('Mots-clés pas enregistrés. Vérifiez la connexion et réessayez.'); load(); return }
+    for (const e of entries.filter(e => e.format === 'short' && e.pad_ids[0] === id && locked(e) && !published(e))) await updateEntry(e.id, resync())
+  }
+
+  function updateText(e, patch) {
+    return updateEntry(e.id, locked(e) ? { ...patch, ...resync() } : patch)
   }
 
   async function addEntry(day, videoId) {
@@ -414,9 +430,9 @@ export default function DiffusionPage() {
       </div>
 
       {editing && (
-        <Editor entry={editing} finalUrl={finalOf(editing)} parent={parentOf(editing)} locked={locked(editing)} pickable={pickable} byId={byId} uploading={uploading === editing.id}
+        <Editor entry={editing} finalUrl={finalOf(editing)} parent={parentOf(editing)} locked={locked(editing)} published={published(editing)} pickable={pickable} byId={byId} uploading={uploading === editing.id}
           agent={agent} onRequest={on => requestPublish(editing, on)}
-          name={entryName(editing)} onClose={() => setEditingId(null)} onChange={patch => updateEntry(editing.id, patch)}
+          name={entryName(editing)} onClose={() => setEditingId(null)} onChange={patch => updateEntry(editing.id, patch)} onTextChange={patch => updateText(editing, patch)} onEpisodeChange={updateEpisode}
           onUpload={file => uploadFinal(editing, file)} onDelete={() => deleteEntry(editing)} />
       )}
     </div>
@@ -442,7 +458,7 @@ function AgentStatus({ agent, pending }) {
   )
 }
 
-function Editor({ entry, finalUrl, parent, locked, pickable, byId, uploading, agent, onRequest, name, onClose, onChange, onUpload, onDelete }) {
+function Editor({ entry, finalUrl, parent, locked, published, pickable, byId, uploading, agent, onRequest, name, onClose, onChange, onTextChange, onEpisodeChange, onUpload, onDelete }) {
   const fileInput = useRef(null)
   const format = FORMATS[entry.format]
   const slotCount = format.slots || entry.pad_ids.length + 1
@@ -488,7 +504,8 @@ function Editor({ entry, finalUrl, parent, locked, pickable, byId, uploading, ag
         </div>
 
         <div className="px-5 py-4 space-y-5">
-          {locked && <p className="text-sm text-green-800 bg-green-50 rounded-lg px-3 py-2">Déjà envoyée à Metricool : modifiez-la dans Metricool, ou demandez à Claude de la retirer d'abord.</p>}
+          {published && <p className="text-sm text-green-800 bg-green-50 rounded-lg px-3 py-2">Publiée : plus rien n'est modifiable ici.</p>}
+          {locked && !published && <p className="text-sm text-green-800 bg-green-50 rounded-lg px-3 py-2">Programmée dans Metricool. Le titre, le texte et les mots-clés restent modifiables jusqu'à l'heure de publication : Claude reporte les changements dans Metricool (passage toutes les 30 min).{entry.publish_requested_at ? ` Mise à jour en attente (${entry.publish_requested_by}).` : ''} Pour changer la date, la vidéo ou les réseaux, demandez à Claude.</p>}
           {!locked && <section className="rounded-lg border px-3 py-3 space-y-2">
             <p className="text-sm font-semibold text-gray-900">Mise en ligne</p>
             {entry.publish_error && <p className="text-sm text-red-700 bg-red-50 rounded px-2 py-1">Claude n'a pas pu la programmer : {entry.publish_error}</p>}
@@ -571,14 +588,21 @@ function Editor({ entry, finalUrl, parent, locked, pickable, byId, uploading, ag
 
           <section>
             <label className="text-sm font-semibold text-gray-900">Titre {entry.format === 'short' && <span className="font-normal text-gray-500">(facultatif)</span>}
-              <BlurInput value={entry.title || ''} disabled={locked} placeholder="SKROLL #NN" onSave={title => onChange({ title })} className={`${field} mt-1 font-normal`} />
+              <BlurInput value={entry.title || ''} disabled={published} placeholder="SKROLL #NN – Titre" onSave={title => onTextChange({ title })} className={`${field} mt-1 font-normal`} />
             </label>
-            <p className="text-xs text-gray-500 mt-1">Titre YouTube. Laissé vide : « SKROLL #NN », sans le titre de l'épisode pour ne rien dévoiler.</p>
+            <p className="text-xs text-gray-500 mt-1">Titre Facebook, TikTok et YouTube, en tête du texte. Norme : « SKROLL #NN – Titre ».</p>
           </section>
+
+          {entry.format === 'short' && byId[entry.pad_ids[0]] && <section>
+            <label className="text-sm font-semibold text-gray-900">Mots-clés de l'épisode
+              <TagsInput value={byId[entry.pad_ids[0]].tags || []} disabled={published} onSave={tags => onEpisodeChange(entry.pad_ids[0], { tags })} />
+            </label>
+            <p className="text-xs text-gray-500 mt-1">Séparés par des virgules. Ajoutés aux hashtags habituels et aux tags YouTube à la mise en ligne. Ce sont ceux de l'épisode : les mêmes que sur la page Épisodes.</p>
+          </section>}
 
           <section>
             <label className="text-sm font-semibold text-gray-900">Texte de la publication
-              <BlurInput multiline value={entry.caption || ''} disabled={locked} onSave={caption => onChange({ caption })} className={`${field} mt-1 font-normal`} />
+              <BlurInput multiline value={entry.caption || ''} disabled={published} onSave={caption => onTextChange({ caption })} className={`${field} mt-1 font-normal`} />
             </label>
           </section>
           </>}
@@ -588,6 +612,23 @@ function Editor({ entry, finalUrl, parent, locked, pickable, byId, uploading, ag
       </div>
     </div>
   )
+}
+
+function splitTags(text) {
+  return [...new Set(text.split(',').map(t => t.trim().toLowerCase()).filter(Boolean))]
+}
+
+function TagsInput({ value, onSave, disabled }) {
+  const [draft, setDraft] = useState(value.join(', '))
+  useEffect(() => setDraft(value.join(', ')), [value.join(',')])
+  function save() {
+    const tags = splitTags(draft)
+    setDraft(tags.join(', '))
+    if (tags.join(',') !== value.join(',')) onSave(tags)
+  }
+  return <input value={draft} disabled={disabled} onChange={e => setDraft(e.target.value)} onBlur={save} onKeyDown={e => e.key === 'Enter' && e.target.blur()}
+    placeholder="plage, années 60, Bigouden, quiproquo…"
+    className="mt-1 w-full border rounded-lg px-3 py-2 text-sm font-normal text-gray-800 focus:outline-none focus:border-blue-400 disabled:bg-gray-50" />
 }
 
 function BlurInput({ value, onSave, multiline, ...props }) {
